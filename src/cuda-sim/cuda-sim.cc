@@ -2037,6 +2037,7 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
         inst.space = insn_space;
         inst.set_addr(lane_id, insn_memaddr);
         inst.set_target_shmem_shader_id(lane_id, target_shader_id);
+        inst.set_sid(m_hw_sid);
         inst.data_size = insn_data_size;  // simpleAtomicIntrinsics
         assert(inst.memory_op == insn_memory_op);
       }

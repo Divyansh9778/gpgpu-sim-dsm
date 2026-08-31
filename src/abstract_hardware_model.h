@@ -1122,8 +1122,8 @@ class warp_inst_t : public inst_t {
 
   const active_mask_t &get_active_mask() const { return m_warp_active_mask; }
   void completed(unsigned long long cycle)
-      const;  // stat collection: called when the instruction is completed
-
+  const;  // stat collection: called when the instruction is completed
+  
   void set_addr(unsigned n, new_addr_type addr) {
     if (!m_per_scalar_thread_valid) {
       m_per_scalar_thread.resize(m_config->warp_size);
@@ -1131,9 +1131,18 @@ class warp_inst_t : public inst_t {
     }
     m_per_scalar_thread[n].memreqaddr[0] = addr;
   }
+
   void set_target_shmem_shader_id(unsigned n, unsigned target_shader_id) {
+    if (!m_per_scalar_thread_valid) {
+      m_per_scalar_thread.resize(m_config->warp_size);
+      m_per_scalar_thread_valid = true;
+    }
     m_per_scalar_thread[n].target_shader_id = target_shader_id;
   }
+  
+  void set_sid(unsigned sid) { m_sid = sid; }
+  unsigned get_sid() const { return m_sid; }
+
   void set_addr(unsigned n, new_addr_type *addr, unsigned num_addrs) {
     if (!m_per_scalar_thread_valid) {
       m_per_scalar_thread.resize(m_config->warp_size);
