@@ -16,6 +16,7 @@ list(APPEND gpgpusim_SRC addrdec.cc
     power_stat.cc
     scoreboard.cc
     shader.cc
+    sm_2_sm_network.cc
     stack.cc
     stat-tool.cc
     traffic_breakdown.cc

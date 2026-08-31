@@ -1493,12 +1493,16 @@ void atom_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
     } else if (whichspace(effective_address) == shared_space) {
       unsigned smid = thread->get_hw_sid();
       effective_address_final = generic_to_shared(smid, effective_address);
+      thread->m_last_shared_memory_target_shader_id = smid;
       space = shared_space;
     } else {
       abort();
     }
   } else {
     assert(space == global_space || space == shared_space);
+    if (space == shared_space) {
+      thread->m_last_shared_memory_target_shader_id = thread->get_hw_sid();
+    }
     effective_address_final = effective_address;
   }
 
@@ -3332,6 +3336,7 @@ void decode_space(memory_space_t &space, ptx_thread_info *thread,
       break;
     case shared_space:
       mem = thread->m_shared_mem;
+      thread->m_last_shared_memory_target_shader_id = smid;
       break;
     case sstarr_space:
       mem = thread->m_sstarr_mem;
@@ -3353,8 +3358,20 @@ void decode_space(memory_space_t &space, ptx_thread_info *thread,
             addr = generic_to_local(smid, hwtid, addr);
             break;
           case shared_space:
-            mem = thread->m_shared_mem;
-            addr = generic_to_shared(smid, addr);
+            if (isspace_shared(smid, addr)) {
+              mem = thread->m_shared_mem;
+              addr = generic_to_shared(smid, addr);
+              thread->m_last_shared_memory_target_shader_id = smid;
+            } else {
+              ptx_cluster_info *cluster_info = thread->m_cluster_info;
+              unsigned cta_rank =
+                  cluster_info->get_cta_rank_of_shared_memory_region(addr);
+              unsigned target_smid =
+                  cluster_info->get_cta(cta_rank)->get_shader_id();
+              thread->m_last_shared_memory_target_shader_id = target_smid;
+              addr = generic_to_shared(target_smid, addr);
+              mem = cluster_info->get_cta(cta_rank)->get_shared_memory();
+            }
             break;
           default:
             abort();

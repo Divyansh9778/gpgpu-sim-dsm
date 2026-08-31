@@ -194,6 +194,8 @@ enum _memory_op_t { no_memory_op = 0, memory_load, memory_store };
 #include <deque>
 #include <list>
 #include <map>
+#include <memory>
+#include <memory>
 #include <vector>
 
 #if !defined(__VECTOR_TYPES_H__)
@@ -426,6 +428,13 @@ class core_config {
   bool gmem_skip_L1D;  // on = global memory access always skip the L1 cache
 
   bool adaptive_cache_config;
+  char *sm_2_sm_network_type;
+  bool sm_2_sm_network_log;
+  uint32_t dsmem_st_latency;
+  uint32_t dsmem_ld_latency;
+  uint32_t dsmem_atomic_latency;
+  uint32_t cluster_arrive_latency;
+  uint32_t cluster_wait_latency;
 };
 
 // bounded stack that implements simt reconvergence using pdom mechanism from
@@ -1067,6 +1076,7 @@ class warp_inst_t : public inst_t {
     m_streamID = (unsigned long long)-1;
     m_empty = true;
     m_config = NULL;
+    m_sid = 0;
 
     // Ni:
     m_is_ldgsts = false;
@@ -1080,6 +1090,8 @@ class warp_inst_t : public inst_t {
     m_streamID = (unsigned long long)-1;
     assert(config->warp_size <= MAX_WARP_SIZE);
     m_config = config;
+    m_sid = 0;
+    
     m_empty = true;
     m_isatomic = false;
     m_per_scalar_thread_valid = false;
@@ -1118,6 +1130,9 @@ class warp_inst_t : public inst_t {
       m_per_scalar_thread_valid = true;
     }
     m_per_scalar_thread[n].memreqaddr[0] = addr;
+  }
+  void set_target_shmem_shader_id(unsigned n, unsigned target_shader_id) {
+    m_per_scalar_thread[n].target_shader_id = target_shader_id;
   }
   void set_addr(unsigned n, new_addr_type *addr, unsigned num_addrs) {
     if (!m_per_scalar_thread_valid) {
@@ -1230,6 +1245,9 @@ class warp_inst_t : public inst_t {
     return cycles > 0;
   }
 
+  bool cluster_request_complete();
+  std::shared_ptr<class cluster_shmem_request> get_next_open_cluster_request();
+  bool has_pending_cluster_request();
   bool has_dispatch_delay() { return cycles > 0; }
 
   void print(FILE *fout) const;
@@ -1237,6 +1255,10 @@ class warp_inst_t : public inst_t {
   unsigned long long get_streamID() const { return m_streamID; }
   unsigned get_schd_id() const { return m_scheduler_id; }
   active_mask_t get_warp_active_mask() const { return m_warp_active_mask; }
+
+  int get_total_dmsme_req() const {
+    return m_pending_cluster_memory_requests.size();
+  }
 
  protected:
   unsigned m_uid;
@@ -1257,11 +1279,18 @@ class warp_inst_t : public inst_t {
       m_warp_issued_mask;  // active mask at issue (prior to predication test)
                            // -- for instruction counting
 
+  enum DSMEM_STATUS { NOT_SEND, IN_PROGRESS, COMPLETE };
+  std::list<
+      std::pair<std::shared_ptr<class cluster_shmem_request>, DSMEM_STATUS>>
+      m_pending_cluster_memory_requests;
+
   struct per_thread_info {
     per_thread_info() {
       for (unsigned i = 0; i < MAX_ACCESSES_PER_INSN_PER_THREAD; i++)
         memreqaddr[i] = 0;
+        target_shader_id = 0;
     }
+    unsigned target_shader_id;
     dram_callback_t callback;
     new_addr_type
         memreqaddr[MAX_ACCESSES_PER_INSN_PER_THREAD];  // effective address,
@@ -1287,6 +1316,8 @@ class warp_inst_t : public inst_t {
   bool m_is_depbar;
 
   unsigned int m_depbar_group_no;
+
+  unsigned m_sid;
 };
 
 void move_warp(warp_inst_t *&dst, warp_inst_t *&src);

@@ -40,6 +40,7 @@
 #include "cuda-sim/ptx-stats.h"
 #include "cuda-sim/ptx_ir.h"
 #include "gpgpu-sim/gpu-sim.h"
+#include "gpgpu-sim/sm_2_sm_network.h"
 #include "gpgpusim_entrypoint.h"
 #include "option_parser.h"
 
@@ -283,6 +284,32 @@ void warp_inst_t::broadcast_barrier_reduction(
   }
 }
 
+bool warp_inst_t::has_pending_cluster_request() {
+  for (const auto &request : m_pending_cluster_memory_requests) {
+    if (request.second == NOT_SEND) {
+      return true;
+    }
+  }
+  return false;
+}
+bool warp_inst_t::cluster_request_complete() {
+  for (auto &req : m_pending_cluster_memory_requests) {
+    if (!req.first.get()->complete) return false;
+  }
+  return true;
+}
+std::shared_ptr<cluster_shmem_request>
+warp_inst_t::get_next_open_cluster_request() {
+  if (m_pending_cluster_memory_requests.empty()) return nullptr;
+  for (auto &request : m_pending_cluster_memory_requests) {
+    if (request.second == NOT_SEND) {
+      request.second = IN_PROGRESS;
+      return request.first;
+    }
+  }
+  return nullptr;
+}
+
 void warp_inst_t::generate_mem_accesses() {
   if (empty() || op == MEMORY_BARRIER_OP || m_mem_accesses_created) return;
   if (!((op == LOAD_OP) || (op == TENSOR_CORE_LOAD_OP) || (op == STORE_OP) ||
@@ -332,23 +359,65 @@ void warp_inst_t::generate_mem_accesses() {
     case sstarr_space: {
       unsigned subwarp_size = m_config->warp_size / m_config->mem_warp_parts;
       unsigned total_accesses = 0;
+      bool ignore_request = false;
       for (unsigned subwarp = 0; subwarp < m_config->mem_warp_parts;
            subwarp++) {
         // data structures used per part warp
-        std::map<unsigned, std::map<new_addr_type, unsigned> >
+        std::map<unsigned, std::map<new_addr_type, unsigned>>
             bank_accs;  // bank -> word address -> access count
+        std::map<unsigned,
+                 std::map<unsigned, std::map<new_addr_type, unsigned>>>
+            cluster_requests;
 
         // step 1: compute accesses to words in banks
         for (unsigned thread = subwarp * subwarp_size;
              thread < (subwarp + 1) * subwarp_size; thread++) {
           if (!active(thread)) continue;
-          new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
-          // FIXME: deferred allocation of shared memory should not accumulate
-          // across kernel launches assert( addr < m_config->gpgpu_shmem_size );
-          unsigned bank = m_config->shmem_bank_func(addr);
-          new_addr_type word =
-              line_size_based_tag_func(addr, m_config->WORD_SIZE);
-          bank_accs[bank][word]++;
+
+          if (m_per_scalar_thread[thread].target_shader_id == m_sid) {
+            new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
+            // FIXME: deferred allocation of shared memory should not accumulate
+            // across kernel launches assert( addr < m_config->gpgpu_shmem_size
+            // );
+            unsigned bank = m_config->shmem_bank_func(addr);
+            new_addr_type word =
+                line_size_based_tag_func(addr, m_config->WORD_SIZE);
+            bank_accs[bank][word]++;
+          } else if ((strcmp(m_config->sm_2_sm_network_type, "none") == 0)) {
+            ignore_request = true;
+          } else {
+            // create a cluster request
+            new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
+            assert(addr < SHARED_MEM_SIZE_MAX);
+            unsigned bank = m_config->shmem_bank_func(addr);
+            new_addr_type word =
+                line_size_based_tag_func(addr, m_config->WORD_SIZE);
+            cluster_requests[m_per_scalar_thread[thread].target_shader_id][bank]
+                            [word]++;
+          }
+        }
+
+        assert(m_pending_cluster_memory_requests.empty());
+        // Calculate Bank Conflicts for Cluster requests
+        for (auto &target : cluster_requests) {
+          // look for the bank with the maximum number of access to
+          // different words
+          unsigned max_bank_accesses = 0;
+          unsigned requestSize = 0;
+          std::map<unsigned, std::map<new_addr_type, unsigned>>::iterator b;
+          for (auto &bank : target.second) {
+            max_bank_accesses =
+                std::max(max_bank_accesses, (unsigned)bank.second.size());
+
+            for (auto &word : bank.second) requestSize += word.second;
+          }
+          requestSize *= m_config->WORD_SIZE;
+          // For now we don't store the address and thread in the message
+          std::shared_ptr<cluster_shmem_request> request(
+              new cluster_shmem_request(this, 0, is_write, m_isatomic, m_sid,
+                                        target.first, 0, max_bank_accesses,
+                                        requestSize));
+          m_pending_cluster_memory_requests.push_back({request, NOT_SEND});
         }
 
         if (m_config->shmem_limited_broadcast) {
@@ -413,11 +482,37 @@ void warp_inst_t::generate_mem_accesses() {
           total_accesses += max_bank_accesses;
         }
       }
-      assert(total_accesses > 0 && total_accesses <= m_config->warp_size);
+      assert((ignore_request || !m_pending_cluster_memory_requests.empty() ||
+              total_accesses > 0) &&
+             total_accesses <= m_config->warp_size);
       cycles = total_accesses;  // shared memory conflicts modeled as larger
                                 // initiation interval
-      m_config->gpgpu_ctx->stats->ptx_file_line_stats_add_smem_bank_conflict(
-          pc, total_accesses);
+
+      if (ignore_request) {
+        // Shared memory latency is already included substract it from user
+        // input
+        const auto smem_latency =
+            m_config->gpgpu_ctx->the_gpgpusim->g_the_gpu->getShaderCoreConfig()
+                ->smem_latency;
+        int dsmem_latency;
+        if (isatomic()) {
+          dsmem_latency = m_config->dsmem_atomic_latency;
+        } else if (is_load()) {
+          dsmem_latency = m_config->dsmem_ld_latency;
+        } else {
+          dsmem_latency = m_config->dsmem_st_latency;
+        }
+
+        const auto latency =
+            std::max(dsmem_latency - static_cast<int>(smem_latency), 1);
+        cycles += latency;
+        m_config->gpgpu_ctx->stats->ptx_file_line_stats_add_smem_bank_conflict(
+            pc, cycles);
+      } else {
+        m_config->gpgpu_ctx->stats->ptx_file_line_stats_add_smem_bank_conflict(
+            pc, total_accesses);
+      }
+
       break;
     }
 

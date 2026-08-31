@@ -155,6 +155,32 @@ class symbol_table;
 class function_info;
 class ptx_thread_info;
 
+class ptx_cta_info;
+class ptx_cluster_info {
+ public:
+  ptx_cluster_info(gpgpu_context *ctx);
+  void add_cta(ptx_cta_info *cta, unsigned cluster_ctarank);
+  void clear();
+  unsigned get_cta_rank_of_shared_memory_region(addr_t addr);
+  ptx_cta_info *get_cta(unsigned cta_rank) {
+    return m_ctas_in_cluster[cta_rank];
+  }
+  void reset_arrive_status();
+  bool all_threads_arrived() const;
+
+  bool is_complete();
+  void set_ctas_per_cluster(int n) { cta_per_cluster = n; }
+  int get_ctas_in_cluster() const { return cta_per_cluster; }
+
+  bool waiting_at_cluster_bar = false;
+  int threads_arrived = 0;
+
+ private:
+  class gpgpu_context *gpgpu_ctx;
+  unsigned cta_per_cluster;
+  std::map<unsigned, ptx_cta_info *> m_ctas_in_cluster;
+};
+
 class ptx_cta_info {
  public:
   ptx_cta_info(unsigned sm_idx, gpgpu_context *ctx);
@@ -167,6 +193,18 @@ class ptx_cta_info {
   unsigned get_bar_threads() const;
   void inc_bar_threads();
   void reset_bar_threads();
+  
+  int get_shader_id() { return m_sm_idx; }
+  void add_cluster_info(ptx_cluster_info *cluster) { m_cluster_info = cluster; }
+  void set_cluster_cta_rank(unsigned rank) { m_cluster_cta_rank = rank; }
+  bool is_complete() {
+    return m_threads_that_have_exited.size() == m_threads_in_cta.size();
+  }
+  bool is_in_generic_shared_memory(addr_t addr);
+  void set_shared_memory(memory_space *shared_mem) {
+    m_shared_mem = shared_mem;
+  }
+  memory_space *get_shared_memory() { return m_shared_mem; }
 
  private:
   // backward pointer
@@ -177,6 +215,11 @@ class ptx_cta_info {
   std::set<ptx_thread_info *> m_threads_in_cta;
   std::set<ptx_thread_info *> m_threads_that_have_exited;
   std::set<ptx_thread_info *> m_dangling_pointers;
+  
+  memory_space *m_shared_mem;
+  ptx_cluster_info *m_cluster_info;
+  unsigned m_cluster_cta_rank;
+  friend ptx_cluster_info;
 };
 
 class ptx_warp_info {
@@ -354,6 +397,9 @@ class ptx_thread_info {
   addr_t last_eaddr() const { return m_last_effective_address; }
   memory_space_t last_space() const { return m_last_memory_space; }
   dram_callback_t last_callback() const { return m_last_dram_callback; }
+  unsigned last_shmem_shader_id() const {
+    return m_last_shared_memory_target_shader_id;
+  }
   unsigned long long get_cta_uid() { return m_cta_info->get_sm_idx(); }
 
   void set_single_thread_single_block() {
@@ -467,12 +513,16 @@ class ptx_thread_info {
   bool m_branch_taken;
   memory_space_t m_last_memory_space;
   dram_callback_t m_last_dram_callback;
+  unsigned m_last_shared_memory_target_shader_id;
   memory_space *m_shared_mem;
   memory_space *m_sstarr_mem;
   memory_space *m_local_mem;
+  ptx_cluster_info *m_cluster_info;
   ptx_warp_info *m_warp_info;
   ptx_cta_info *m_cta_info;
   ptx_reg_t m_last_set_operand_value;
+  bool m_arrived = false;
+  bool m_has_to_wait = false;
 
  private:
   bool m_functionalSimulationMode;

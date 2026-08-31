@@ -38,6 +38,55 @@ typedef void *yyscan_t;
 
 void feature_not_implemented(const char *f);
 
+ptx_cluster_info::ptx_cluster_info(gpgpu_context *ctx) { gpgpu_ctx = ctx; }
+
+void ptx_cluster_info::add_cta(ptx_cta_info *cta, unsigned cluster_ctarank) {
+  m_ctas_in_cluster[cluster_ctarank] = cta;
+  cta->add_cluster_info(this);
+  cta->set_cluster_cta_rank(cluster_ctarank);
+}
+
+bool ptx_cluster_info::is_complete() {
+  if (m_ctas_in_cluster.size() != cta_per_cluster) return false;
+  for (auto &cta : m_ctas_in_cluster) {
+    if (!cta.second->is_complete()) return false;
+  }
+  return true;
+}
+
+void ptx_cluster_info::clear() { m_ctas_in_cluster.clear(); }
+unsigned ptx_cluster_info::get_cta_rank_of_shared_memory_region(addr_t addr) {
+  for (auto const &cta : m_ctas_in_cluster) {
+    if (cta.second->is_in_generic_shared_memory(addr)) return cta.first;
+  }
+  assert(0);
+  return (UINT32_MAX - 1);
+}
+
+void ptx_cluster_info::reset_arrive_status() {
+  for (auto &cta : m_ctas_in_cluster) {
+    for (auto &thread : cta.second->m_threads_in_cta) {
+      thread->m_arrived = false;
+      thread->m_has_to_wait = false;
+    }
+  }
+}
+
+bool ptx_cluster_info::all_threads_arrived() const {
+  for (const auto &cta : m_ctas_in_cluster) {
+    for (const auto &thread : cta.second->m_threads_in_cta) {
+      if (thread->m_arrived != true) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool ptx_cta_info::is_in_generic_shared_memory(addr_t addr) {
+  return isspace_shared(m_sm_idx, addr);
+}
+
 ptx_cta_info::ptx_cta_info(unsigned sm_idx, gpgpu_context *ctx) {
   assert(ctx->func_sim->g_ptx_cta_info_sm_idx_used.find(sm_idx) ==
          ctx->func_sim->g_ptx_cta_info_sm_idx_used.end());
@@ -160,6 +209,7 @@ ptx_thread_info::ptx_thread_info(kernel_info_t &kernel) : m_kernel(kernel) {
   m_icount = 0;
   m_last_effective_address = 0;
   m_last_memory_space = undefined_space;
+  m_last_shared_memory_target_shader_id = UINT_MAX;
   m_branch_taken = 0;
   m_shared_mem = NULL;
   m_sstarr_mem = NULL;
