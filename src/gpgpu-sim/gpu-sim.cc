@@ -100,6 +100,8 @@ tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 #include "mem_latency_stat.h"
 
+void sm2sm_network_options(class OptionParser *opp);
+
 void power_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-accelwattch_xml_file", OPT_CSTR,
                          &g_power_config_name, "AccelWattch XML file",
@@ -449,6 +451,32 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       "Size of unified data cache(L1D + shared memory) in KB", "0");
   option_parser_register(opp, "-gpgpu_adaptive_cache_config", OPT_BOOL,
                          &adaptive_cache_config, "adaptive_cache_config", "0");
+
+    // ---- DSM / thread-block-cluster options ----
+  option_parser_register(opp, "-sm_2_sm_network_type", OPT_CSTR,
+                         &sm_2_sm_network_type,
+                         "SM-to-SM network type <none|ringbus|crossbar|ideal>",
+                         "none");
+  option_parser_register(opp, "-sm_2_sm_network_log", OPT_BOOL,
+                         &sm_2_sm_network_log,
+                         "Enable SM-to-SM network logging", "0");
+  option_parser_register(opp, "-dsmem_st_latency", OPT_UINT32,
+                         &dsmem_st_latency,
+                         "Distributed shared memory store latency", "29");
+  option_parser_register(opp, "-dsmem_ld_latency", OPT_UINT32,
+                         &dsmem_ld_latency,
+                         "Distributed shared memory load latency", "29");
+  option_parser_register(opp, "-dsmem_atomic_latency", OPT_UINT32,
+                         &dsmem_atomic_latency,
+                         "Distributed shared memory atomic latency", "29");
+  option_parser_register(opp, "-cluster_arrive_latency", OPT_UINT32,
+                         &cluster_arrive_latency,
+                         "Cluster barrier arrive latency", "0");
+  option_parser_register(opp, "-cluster_wait_latency", OPT_UINT32,
+                         &cluster_wait_latency,
+                         "Cluster barrier wait latency", "0");
+  sm2sm_network_options(opp);
+
   option_parser_register(
       opp, "-gpgpu_shmem_sizeDefault", OPT_UINT32, &gpgpu_shmem_sizeDefault,
       "Size of shared memory per shader core (default 16kB)", "16384");
@@ -1121,8 +1149,17 @@ enum divergence_support_t gpgpu_sim::simd_model() const {
 }
 
 void gpgpu_sim_config::init_clock_domains(void) {
-  sscanf(gpgpu_clock_domains, "%lf:%lf:%lf:%lf:%lf", &core_freq, &icnt_freq,
-         &l2_freq, &dram_freq, &sm_2_sm_network_freq);
+  sm_2_sm_network_freq = 0.0;
+  int n_domains =
+      sscanf(gpgpu_clock_domains, "%lf:%lf:%lf:%lf:%lf", &core_freq, &icnt_freq,
+             &l2_freq, &dram_freq, &sm_2_sm_network_freq);
+  assert(n_domains >= 4);
+
+  if (n_domains < 5) {
+    // SM2SM domain not specified in config; default it to the core clock.
+    sm_2_sm_network_freq = core_freq;
+  }
+
   core_freq = core_freq MhZ;
   icnt_freq = icnt_freq MhZ;
   l2_freq = l2_freq MhZ;
