@@ -139,7 +139,7 @@ enum uarch_op_t {
 };
 typedef enum uarch_op_t op_type;
 
-enum uarch_bar_t { NOT_BAR = -1, SYNC = 1, ARRIVE, RED };
+enum uarch_bar_t { NOT_BAR = -1, SYNC = 1, ARRIVE, RED, WAIT };
 typedef enum uarch_bar_t barrier_type;
 
 enum uarch_red_t { NOT_RED = -1, POPC_RED = 1, AND_RED, OR_RED };
@@ -240,7 +240,8 @@ class kernel_info_t {
   kernel_info_t(
       dim3 gridDim, dim3 blockDim, class function_info *entry,
       std::map<std::string, const struct cudaArray *> nameToCudaArray,
-      std::map<std::string, const struct textureInfo *> nameToTextureInfo);
+      std::map<std::string, const struct textureInfo *> nameToTextureInfo,
+      unsigned dynamic_smem = 0, dim3 clusterDim = dim3(1, 1, 1));
   ~kernel_info_t();
 
   void inc_running() { m_num_cores_running++; }
@@ -265,6 +266,11 @@ class kernel_info_t {
 
   dim3 get_grid_dim() const { return m_grid_dim; }
   dim3 get_cta_dim() const { return m_block_dim; }
+
+  dim3 get_cluster_dim() const { return m_cluster_dim; }
+  size_t ctas_per_cluster() const {
+    return m_cluster_dim.x * m_cluster_dim.y * m_cluster_dim.z;
+  }
 
   void increment_cta_id() {
     increment_x_then_y_then_z(m_next_cta, m_grid_dim);
@@ -340,6 +346,12 @@ class kernel_info_t {
   dim3 m_block_dim;
   dim3 m_next_cta;
   dim3 m_next_tid;
+
+  dim3 m_cluster_dim;
+  dim3 m_next_cluster;
+  dim3 m_cluster_in_grid;
+  dim3 m_ncluster_in_grid;
+  unsigned m_next_cluster_ctarank;
 
   unsigned m_num_cores_running;
 

@@ -885,10 +885,35 @@ kernels should use the texture bindings seen at the time of launch and textures
 kernel_info_t::kernel_info_t(
     dim3 gridDim, dim3 blockDim, class function_info *entry,
     std::map<std::string, const struct cudaArray *> nameToCudaArray,
-    std::map<std::string, const struct textureInfo *> nameToTextureInfo) {
+    std::map<std::string, const struct textureInfo *> nameToTextureInfo,
+    unsigned dynamic_smem, dim3 clusterDim) {
   m_kernel_entry = entry;
   m_grid_dim = gridDim;
   m_block_dim = blockDim;
+  
+  if (m_kernel_entry->get_is_explicit_cluster())
+    m_cluster_dim = m_kernel_entry->get_cluster_dims();
+  else
+    m_cluster_dim = clusterDim;
+    
+  if (m_grid_dim.x % m_cluster_dim.x != 0 ||
+      m_grid_dim.y % m_cluster_dim.y != 0 ||
+      m_grid_dim.z % m_cluster_dim.z != 0) {
+    printf("Error: grid dimensions must be a multiple of cluster dimensions\n");
+    exit(EXIT_FAILURE);
+  }
+
+  m_ncluster_in_grid.x = m_grid_dim.x / m_cluster_dim.x;
+  m_ncluster_in_grid.y = m_grid_dim.y / m_cluster_dim.y;
+  m_ncluster_in_grid.z = m_grid_dim.z / m_cluster_dim.z;
+  m_cluster_in_grid.x = 0;
+  m_cluster_in_grid.y = 0;
+  m_cluster_in_grid.z = 0;
+  m_next_cluster.x = 0;
+  m_next_cluster.y = 0;
+  m_next_cluster.z = 0;
+  m_next_cluster_ctarank = 0;
+
   m_next_cta.x = 0;
   m_next_cta.y = 0;
   m_next_cta.z = 0;

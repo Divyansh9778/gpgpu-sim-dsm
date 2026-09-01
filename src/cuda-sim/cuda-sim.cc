@@ -722,6 +722,9 @@ void ptx_instruction::set_bar_type() {
       case ARRIVE_OPTION:
         bar_type = ARRIVE;
         break;
+      case WAIT_OPTION:
+        bar_type = WAIT;
+        break;
       case RED_OPTION:
         bar_type = RED;
         switch (m_atomic_spec) {

@@ -141,11 +141,21 @@ class kernel_config {
                 struct CUstream_st *stream) {
     m_GridDim = GridDim;
     m_BlockDim = BlockDim;
+    m_clusterDim = dim3(1, 1, 1);
+    m_sharedMem = sharedMem;
+    m_stream = stream;
+  }
+  kernel_config(dim3 GridDim, dim3 BlockDim, dim3 ClusterDim, size_t sharedMem,
+                struct CUstream_st *stream) {
+    m_GridDim = GridDim;
+    m_BlockDim = BlockDim;
+    m_clusterDim = ClusterDim;
     m_sharedMem = sharedMem;
     m_stream = stream;
   }
   kernel_config() {
     m_GridDim = dim3(-1, -1, -1);
+    m_clusterDim = dim3(1, 1, 1);
     m_BlockDim = dim3(-1, -1, -1);
     m_sharedMem = 0;
     m_stream = NULL;
@@ -154,15 +164,16 @@ class kernel_config {
     m_args.push_front(gpgpu_ptx_sim_arg(arg, size, offset));
   }
   dim3 grid_dim() const { return m_GridDim; }
+  dim3 cluster_dim() const { return m_clusterDim; }
   dim3 block_dim() const { return m_BlockDim; }
+  unsigned dynamic_smem() { return m_sharedMem; }
   void set_grid_dim(dim3 *d) { m_GridDim = *d; }
   void set_block_dim(dim3 *d) { m_BlockDim = *d; }
   gpgpu_ptx_sim_arg_list_t get_args() { return m_args; }
-  struct CUstream_st *get_stream() {
-    return m_stream;
-  }
+  struct CUstream_st *get_stream() { return m_stream; }
 
  private:
+  dim3 m_clusterDim;
   dim3 m_GridDim;
   dim3 m_BlockDim;
   size_t m_sharedMem;
@@ -226,7 +237,9 @@ class cuda_runtime_api {
                                               gpgpu_ptx_sim_arg_list_t args,
                                               struct dim3 gridDim,
                                               struct dim3 blockDim,
-                                              struct CUctx_st *context);
+                                              struct CUctx_st *context,
+                                              unsigned dynamic_smem = 0,
+                                              dim3 clusterDim = dim3(1, 1, 1));
   int load_static_globals(symbol_table *symtab, unsigned min_gaddr,
                           unsigned max_gaddr, gpgpu_t *gpu);
   int load_constants(symbol_table *symtab, addr_t min_gaddr, gpgpu_t *gpu);
