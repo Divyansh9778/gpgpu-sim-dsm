@@ -1286,15 +1286,14 @@ ptx_instruction::ptx_instruction(
     int last_ptx_inst_option = *i;
     switch (last_ptx_inst_option) {
       case SYNC_OPTION:
+      case WAIT_OPTION:
       case ARRIVE_OPTION:
       case RED_OPTION:
         m_barrier_op = last_ptx_inst_option;
         break;
-
       case CLUSTER_OPTION:
         m_cluster = true;
         break;
-      
       case EQU_OPTION:
       case NEU_OPTION:
       case LTU_OPTION:
@@ -1530,7 +1529,7 @@ function_info::function_info(int entry_point, gpgpu_context *ctx) {
   m_cluster_dims.y = 1;
   m_cluster_dims.z = 1;
   gpgpu_ctx = ctx;
-  
+
   m_uid = (gpgpu_ctx->function_info_sm_next_uid)++;
   m_entry_point = (entry_point == 1) ? true : false;
   m_extern = (entry_point == 2) ? true : false;
