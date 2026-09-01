@@ -67,6 +67,11 @@ class ptx_recognizer;
 %token  GLOBAL_DIRECTIVE
 %token  LOCAL_DIRECTIVE
 %token  LOC_DIRECTIVE
+
+%token  EXPLICITCLUSTER_DIRECTIVE
+%token  MAXCLUSTERRANK_DIRECTIVE
+%token  REQNCTAPERCLUSTER_DIRECTIVE
+
 %token  MAXNCTAPERSM_DIRECTIVE
 %token  MAXNNREG_DIRECTIVE
 %token  MAXNTID_DIRECTIVE
@@ -176,6 +181,10 @@ class ptx_recognizer;
 %token SYNC_OPTION
 %token RED_OPTION
 %token ARRIVE_OPTION
+
+%token WAIT_OPTION
+%token CLUSTER_OPTION
+
 %token ATOMIC_POPC
 %token ATOMIC_AND
 %token ATOMIC_OR
@@ -256,6 +265,15 @@ block_spec: MAXNTID_DIRECTIVE INT_OPERAND COMMA INT_OPERAND COMMA INT_OPERAND {r
                                                                                 recognizer->maxnt_id($2, $4, $6);}
 	| MINNCTAPERSM_DIRECTIVE INT_OPERAND { recognizer->func_header_info_int(".minnctapersm", $2); printf("GPGPU-Sim: Warning: .minnctapersm ignored. \n"); }
 	| MAXNCTAPERSM_DIRECTIVE INT_OPERAND { recognizer->func_header_info_int(".maxnctapersm", $2); printf("GPGPU-Sim: Warning: .maxnctapersm ignored. \n"); }
+	
+	| EXPLICITCLUSTER_DIRECTIVE {recognizer->func_header_info(".explicitcluster");
+										recognizer->is_explicit_cluster();}
+	| MAXCLUSTERRANK_DIRECTIVE INT_OPERAND {recognizer->func_header_info_int(".maxclusterrank", $2);
+										recognizer->max_cluster_rank($2);}
+	| REQNCTAPERCLUSTER_DIRECTIVE INT_OPERAND COMMA INT_OPERAND COMMA INT_OPERAND {recognizer->func_header_info_int(".reqnctapercluster", $2);
+										recognizer->func_header_info_int(",", $4);
+										recognizer->func_header_info_int(",", $6);
+										recognizer->reqncta_per_cluster($2, $4, $6);}
 	;
 
 block_spec_list: block_spec
@@ -473,10 +491,14 @@ option: type_spec
 	| addressable_spec
 	| rounding_mode
 	| wmma_spec 
+	
 	| prmt_spec 
+	| CLUSTER_OPTION { recognizer->add_option(CLUSTER_OPTION); }
 	| SYNC_OPTION { recognizer->add_option(SYNC_OPTION); }
 	| ARRIVE_OPTION { recognizer->add_option(ARRIVE_OPTION); }
+	| WAIT_OPTION {recognizer->add_option(WAIT_OPTION); }
 	| RED_OPTION { recognizer->add_option(RED_OPTION); }
+
 	| UNI_OPTION { recognizer->add_option(UNI_OPTION); }
 	| WIDE_OPTION { recognizer->add_option(WIDE_OPTION); }
 	| ANY_OPTION { recognizer->add_option(ANY_OPTION); }

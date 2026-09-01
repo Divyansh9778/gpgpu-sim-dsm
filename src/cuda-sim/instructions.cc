@@ -3257,6 +3257,28 @@ void fma_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   mad_def(pI, thread);
 }
 
+void getctarank_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  ptx_reg_t a, d;
+  const operand_info &dst = pI->dst();
+  const operand_info &src1 = pI->src1();
+  unsigned i_type = pI->get_type();
+
+  a = thread->get_operand_value(src1, dst, i_type, thread, 1);
+  ptx_cluster_info *cluster_info = thread->m_cluster_info;
+  unsigned cta_rank = cluster_info->get_cta_rank_of_shared_memory_region(a.u64);
+
+  switch (i_type) {
+    case U64_TYPE:
+      d.u64 = cta_rank;
+      break;
+    default:
+      printf("Execution error: type mismatch with instruction\n");
+      assert(0);
+      break;
+  }
+  thread->set_operand_value(dst, d, i_type, thread, pI);
+}
+
 void isspacep_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   ptx_reg_t a;
   bool t = false;
@@ -4028,6 +4050,42 @@ void mad_def(const ptx_instruction *pI, ptx_thread_info *thread,
 bool isNaN(float x) { return std::isnan(x); }
 
 bool isNaN(double x) { return std::isnan(x); }
+
+void mapa_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  ptx_reg_t a, b, d;
+  const operand_info &dst = pI->dst();
+  const operand_info &src1 = pI->src1();
+  const operand_info &src2 = pI->src2();
+
+  unsigned i_type = pI->get_type();
+  a = thread->get_operand_value(src1, dst, i_type, thread, 1);
+  b = thread->get_operand_value(src2, dst, i_type, thread, 1);
+  unsigned ctas_in_cluster = thread->m_cluster_info->ctas_in_cluster();
+  if (b.u32 >= ctas_in_cluster) {
+    std::cout << "Mapa Error!\n";
+    std::cout << "Target CTA Rank: " << b.u32
+              << " is larger than the maximum CTA Rank in this cluster: "
+              << ctas_in_cluster - 1 << "\n";
+    exit(EXIT_FAILURE);
+  }
+
+  int shader_id = thread->get_hw_sid();
+  int target_shader_id =
+      thread->m_cluster_info->get_cta(b.u32)->get_shader_id();
+  assert(a.u64 + (target_shader_id - shader_id) * SHARED_MEM_SIZE_MAX > 0);
+  addr_t addr = a.u64 + (target_shader_id - shader_id) * SHARED_MEM_SIZE_MAX;
+
+  switch (i_type) {
+    case U64_TYPE:
+      d.u64 = addr;
+      break;
+    default:
+      printf("Execution error: type mismatch with instruction\n");
+      assert(0);
+      break;
+  }
+  thread->set_operand_value(dst, d, i_type, thread, pI);
+}
 
 void max_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   ptx_reg_t a, b, d;

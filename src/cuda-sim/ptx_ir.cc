@@ -1239,6 +1239,9 @@ ptx_instruction::ptx_instruction(
   m_abs = false;
   m_neg = false;
   m_to_option = false;
+
+  m_cluster = false;
+  
   m_cache_option = 0;
   m_rounding_mode = RN_OPTION;
   m_compare_op = -1;
@@ -1287,6 +1290,11 @@ ptx_instruction::ptx_instruction(
       case RED_OPTION:
         m_barrier_op = last_ptx_inst_option;
         break;
+
+      case CLUSTER_OPTION:
+        m_cluster = true;
+        break;
+      
       case EQU_OPTION:
       case NEU_OPTION:
       case LTU_OPTION:
@@ -1516,7 +1524,13 @@ operand_info ptx_instruction::get_pred() const {
 }
 
 function_info::function_info(int entry_point, gpgpu_context *ctx) {
+  m_is_explicit_cluster = 0;
+  m_max_cluster_rank = 1;
+  m_cluster_dims.x = 1;
+  m_cluster_dims.y = 1;
+  m_cluster_dims.z = 1;
   gpgpu_ctx = ctx;
+  
   m_uid = (gpgpu_ctx->function_info_sm_next_uid)++;
   m_entry_point = (entry_point == 1) ? true : false;
   m_extern = (entry_point == 2) ? true : false;
