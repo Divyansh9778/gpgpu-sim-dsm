@@ -857,6 +857,21 @@ kernel_info_t::kernel_info_t(dim3 gridDim, dim3 blockDim,
   m_kernel_entry = entry;
   m_grid_dim = gridDim;
   m_block_dim = blockDim;
+  
+  // No clusters on this path (trace-driven); a 1x1x1 cluster makes the
+  // cluster-aware CTA iterator behave exactly like plain grid order.
+  m_cluster_dim = dim3(1, 1, 1);
+  m_ncluster_in_grid.x = m_grid_dim.x;
+  m_ncluster_in_grid.y = m_grid_dim.y;
+  m_ncluster_in_grid.z = m_grid_dim.z;
+  m_cluster_in_grid.x = 0;
+  m_cluster_in_grid.y = 0;
+  m_cluster_in_grid.z = 0;
+  m_next_cluster.x = 0;
+  m_next_cluster.y = 0;
+  m_next_cluster.z = 0;
+  m_next_cluster_ctarank = 0;
+
   m_next_cta.x = 0;
   m_next_cta.y = 0;
   m_next_cta.z = 0;
