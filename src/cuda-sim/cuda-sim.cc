@@ -715,6 +715,7 @@ void ptx_instruction::set_mul_div_or_other_archop() {
 
 void ptx_instruction::set_bar_type() {
   if (m_opcode == BAR_OP) {
+    cluster_barrier = m_cluster;
     switch (m_barrier_op) {
       case SYNC_OPTION:
         bar_type = SYNC;

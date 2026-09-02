@@ -1093,6 +1093,7 @@ class ptx_instruction : public warp_inst_t {
   unsigned barrier_op() const { return m_barrier_op; }
 
   bool cluster_op() const { return m_cluster; }
+  void set_cluster() { cluster_barrier = true; }
 
   unsigned shfl_op() const { return m_shfl_op; }
   unsigned prmt_op() const { return m_prmt_op; }

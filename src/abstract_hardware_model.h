@@ -980,6 +980,7 @@ class inst_t {
     reconvergence_pc = (address_type)-1;
     op = NO_OP;
     bar_type = NOT_BAR;
+    cluster_barrier = false;
     red_type = NOT_RED;
     bar_id = (unsigned)-1;
     bar_count = (unsigned)-1;
@@ -1046,6 +1047,7 @@ class inst_t {
   op_type op;       // opcode (uarch visible)
 
   barrier_type bar_type;
+  bool cluster_barrier;
   reduction_type red_type;
   unsigned bar_id;
   unsigned bar_count;

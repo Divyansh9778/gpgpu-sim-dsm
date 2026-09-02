@@ -45,6 +45,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <array>
 
 // #include "../cuda-sim/ptx.tab.h"
 
@@ -141,7 +142,8 @@ class shd_warp_t {
     m_ldgdepbar_buf.clear();
   }
   void init(address_type start_pc, unsigned cta_id, unsigned wid,
-            const std::bitset<MAX_WARP_SIZE> &active, unsigned dynamic_warp_id,
+            const std::bitset<MAX_WARP_SIZE> &active,
+            unsigned dynamic_warp_id,
             unsigned long long streamID) {
     m_streamID = streamID;
     m_cta_id = cta_id;
@@ -179,6 +181,9 @@ class shd_warp_t {
 
   bool done_exit() const { return m_done_exit; }
   void set_done_exit() { m_done_exit = true; }
+
+  int m_sync_latency = 0;
+  unsigned get_cluster_slot() const { return m_cta_id; }
 
   void print(FILE *fout) const;
   void print_ibuffer(FILE *fout) const;
@@ -1072,8 +1077,9 @@ class barrier_set_t {
       bar_id_to_warp_t; /*set of warps reached a specific barrier id*/
 
   // individual warp hits barrier
-  void warp_reaches_barrier(unsigned cta_id, unsigned warp_id,
-                            warp_inst_t *inst);
+  void warp_reaches_barrier(unsigned cluster_slot, unsigned cta_id,
+                            unsigned warp_id, warp_inst_t *inst);
+  bool warp_waiting_at_cluster_barrier(unsigned cta_id, unsigned warp_id);
 
   // warp reaches exit
   void warp_exit(unsigned warp_id);
@@ -1094,6 +1100,8 @@ class barrier_set_t {
   warp_set_t m_warp_active;
   warp_set_t m_warp_at_barrier;
   shader_core_ctx *m_shader;
+
+  std::array<class ptx_cluster_info *, 64> m_ptx_cluster_info;
 };
 
 struct insn_latency_info {
@@ -2059,6 +2067,8 @@ class shader_core_mem_fetch_allocator : public mem_fetch_allocator {
 
 class shader_core_ctx : public core_t {
  public:
+  friend class barrier_set_t;
+  
   // creator:
   shader_core_ctx(class gpgpu_sim *gpu, class simt_core_cluster *cluster,
                   unsigned shader_id, unsigned tpc_id,
@@ -2109,6 +2119,7 @@ class shader_core_ctx : public core_t {
 
   // accessors
   virtual bool warp_waiting_at_barrier(unsigned warp_id) const;
+  virtual bool warp_waiting_at_cluster_barrier(unsigned cta_id, unsigned warp_id);
   void get_pdom_stack_top_info(unsigned tid, unsigned *pc, unsigned *rpc) const;
   float get_current_occupancy(unsigned long long &active,
                               unsigned long long &total) const;
