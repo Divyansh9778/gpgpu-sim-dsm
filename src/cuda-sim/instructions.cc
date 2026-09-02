@@ -1610,6 +1610,11 @@ void bar_impl(const ptx_instruction *pIin, ptx_thread_info *thread) {
         break;
     }
   }
+  else {
+    pI->set_bar_id(0);
+    pI->set_bar_count(thread->get_ntid().x * thread->get_ntid().y *
+                      thread->get_ntid().z);
+  }
   thread->m_last_dram_callback.function = bar_callback;
   thread->m_last_dram_callback.instruction = pIin;
 }
@@ -3356,6 +3361,7 @@ void decode_space(memory_space_t &space, ptx_thread_info *thread,
       break;
     case shared_space:
       mem = thread->m_shared_mem;
+      thread->m_last_shared_memory_target_shader_id = smid;
       break;
     case sstarr_space:
       mem = thread->m_sstarr_mem;
@@ -3377,8 +3383,21 @@ void decode_space(memory_space_t &space, ptx_thread_info *thread,
             addr = generic_to_local(smid, hwtid, addr);
             break;
           case shared_space:
-            mem = thread->m_shared_mem;
-            addr = generic_to_shared(smid, addr);
+            if (isspace_shared(smid, addr)) {
+              mem = thread->m_shared_mem;
+              addr = generic_to_shared(smid, addr);
+              thread->m_last_shared_memory_target_shader_id = smid;
+            } else {
+              ptx_cluster_info *cluster_info = thread->m_cluster_info;
+              unsigned cta_rank =
+                  cluster_info->get_cta_rank_of_shared_memory_region(addr);
+              unsigned target_smid =
+                  cluster_info->get_cta(cta_rank)->get_shader_id();
+              thread->m_last_shared_memory_target_shader_id = target_smid;
+              addr = generic_to_shared(target_smid, addr);
+              mem = cluster_info->get_cta(cta_rank)->get_shared_memory();
+            }
+
             break;
           default:
             abort();
@@ -3406,7 +3425,7 @@ void ld_exec(const ptx_instruction *pI, ptx_thread_info *thread) {
   unsigned vector_spec = pI->get_vector();
 
   memory_space *mem = NULL;
-  addr_t addr = src1_data.u32;
+  addr_t addr = src1_data.u64;
 
   decode_space(space, thread, src1, mem, addr);
 
@@ -3599,7 +3618,7 @@ void mma_ld_impl(const ptx_instruction *pI, core_t *core, warp_inst_t &inst) {
     memory_space_t space = pI->get_space();
 
     memory_space *mem = NULL;
-    addr_t addr = src1_data.u32;
+    addr_t addr = src1_data.u64;
     smid = thread->get_hw_sid();
     if (whichspace(addr) == shared_space) {
       addr = generic_to_shared(smid, addr);

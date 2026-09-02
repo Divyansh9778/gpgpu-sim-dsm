@@ -197,7 +197,9 @@ class ptx_cta_info {
   void inc_bar_threads();
   void reset_bar_threads();
   
-  int get_shader_id() { return m_sm_idx; }
+  void set_shader_id(int shader_id) { m_shader_id = shader_id; }
+  int get_shader_id() { return m_shader_id; }
+  
   void add_cluster_info(ptx_cluster_info *cluster) { m_cluster_info = cluster; }
   void set_cluster_cta_rank(unsigned rank) { m_cluster_cta_rank = rank; }
   bool is_complete() {
@@ -215,6 +217,7 @@ class ptx_cta_info {
   unsigned m_bar_threads;
   unsigned long long m_uid;
   unsigned m_sm_idx;
+  int m_shader_id;
   std::set<ptx_thread_info *> m_threads_in_cta;
   std::set<ptx_thread_info *> m_threads_that_have_exited;
   std::set<ptx_thread_info *> m_dangling_pointers;

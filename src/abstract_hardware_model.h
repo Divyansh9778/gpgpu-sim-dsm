@@ -272,11 +272,27 @@ class kernel_info_t {
     return m_cluster_dim.x * m_cluster_dim.y * m_cluster_dim.z;
   }
 
+  size_t clusters_per_grid() const { return num_blocks() / ctas_per_cluster(); }
+  dim3 get_next_cluster3d() const { return m_next_cluster; }
+  dim3 get_cluster_in_grid() const { return m_cluster_in_grid; }
+  dim3 get_ncluster_in_grid() const { return m_ncluster_in_grid; }
+  unsigned get_next_cluster_ctarank() const { return m_next_cluster_ctarank; }
+
   void increment_cta_id() {
-    increment_x_then_y_then_z(m_next_cta, m_grid_dim);
+    m_next_cluster_ctarank++;
+    increment_x_then_y_then_z(m_next_cluster, m_cluster_dim);
+    if (m_next_cluster_ctarank >=
+        m_cluster_dim.x * m_cluster_dim.y * m_cluster_dim.z) {
+      m_next_cluster_ctarank = 0;
+      increment_x_then_y_then_z(m_cluster_in_grid, m_ncluster_in_grid);
+      m_next_cluster = {0, 0, 0};
+    }
     m_next_tid.x = 0;
     m_next_tid.y = 0;
     m_next_tid.z = 0;
+    m_next_cta.x = m_cluster_in_grid.x * m_cluster_dim.x + m_next_cluster.x;
+    m_next_cta.y = m_cluster_in_grid.y * m_cluster_dim.y + m_next_cluster.y;
+    m_next_cta.z = m_cluster_in_grid.z * m_cluster_dim.z + m_next_cluster.z;
   }
   dim3 get_next_cta_id() const { return m_next_cta; }
   unsigned get_next_cta_id_single() const {

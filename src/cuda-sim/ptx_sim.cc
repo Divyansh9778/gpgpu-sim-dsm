@@ -93,6 +93,7 @@ ptx_cta_info::ptx_cta_info(unsigned sm_idx, gpgpu_context *ctx) {
   ctx->func_sim->g_ptx_cta_info_sm_idx_used.insert(sm_idx);
 
   m_sm_idx = sm_idx;
+  m_shader_id = -1;
   m_uid = (ctx->g_ptx_cta_info_uid)++;
   m_bar_threads = 0;
   gpgpu_ctx = ctx;

@@ -2077,6 +2077,7 @@ unsigned ptx_sim_init_thread(kernel_info_t &kernel,
 
   static std::map<unsigned, memory_space *> shared_memory_lookup;
   static std::map<unsigned, memory_space *> sstarr_memory_lookup;
+  static std::list<ptx_cluster_info> ptx_cluster_lookup;
   static std::map<unsigned, ptx_cta_info *> ptx_cta_lookup;
   static std::map<unsigned, ptx_warp_info *> ptx_warp_lookup;
   static std::map<unsigned, std::map<unsigned, memory_space *> >
@@ -2124,12 +2125,30 @@ unsigned ptx_sim_init_thread(kernel_info_t &kernel,
 
   // initializing new CTA
   ptx_cta_info *cta_info = NULL;
+  ptx_cluster_info *cluster_info = NULL;
   memory_space *shared_mem = NULL;
   memory_space *sstarr_mem = NULL;
 
   unsigned cta_size = kernel.threads_per_cta();
   unsigned max_cta_per_sm = num_threads / cta_size;  // e.g., 256 / 48 = 5
   assert(max_cta_per_sm > 0);
+
+  for (auto &cluster : ptx_cluster_lookup) {
+    if (cluster.ctas_in_cluster() != cluster.get_ctas_in_cluster()) {
+      cluster_info = &cluster;
+      break;
+    } else if (cluster.is_complete()) {
+      cluster_info = &cluster;
+      cluster_info->clear();
+      cluster_info->set_ctas_per_cluster(kernel.ctas_per_cluster());
+      break;
+    }
+  }
+  if (cluster_info == NULL) {
+    ptx_cluster_lookup.push_back(gpu->gpgpu_ctx);
+    cluster_info = &ptx_cluster_lookup.back();
+    cluster_info->set_ctas_per_cluster(kernel.ctas_per_cluster());
+  }
 
   // unsigned sm_idx = (tid/cta_size)*gpgpu_param_num_shaders + sid;
   unsigned sm_idx =
@@ -2159,6 +2178,9 @@ unsigned ptx_sim_init_thread(kernel_info_t &kernel,
     cta_info = ptx_cta_lookup[sm_idx];
     cta_info->check_cta_thread_status_and_reset();
   }
+  cluster_info->add_cta(cta_info, kernel.get_next_cluster_ctarank());
+  cta_info->set_shader_id(sid);
+  cta_info->set_shared_memory(shared_mem);
 
   std::map<unsigned, memory_space *> &local_mem_lookup =
       local_memory_lookup[sid];
@@ -2166,6 +2188,8 @@ unsigned ptx_sim_init_thread(kernel_info_t &kernel,
     dim3 ctaid3d = kernel.get_next_cta_id();
     unsigned new_tid = kernel.get_next_thread_id();
     dim3 tid3d = kernel.get_next_thread_id_3d();
+    dim3 cluster3d = kernel.get_next_cluster3d();
+    dim3 cluster_in_grid = kernel.get_cluster_in_grid();
     kernel.increment_thread_id();
     new_tid += tid;
     ptx_thread_info *thd = new ptx_thread_info(kernel);
@@ -2194,6 +2218,10 @@ unsigned ptx_sim_init_thread(kernel_info_t &kernel,
     thd->set_ntid(kernel.get_cta_dim());
     thd->set_ctaid(ctaid3d);
     thd->set_tid(tid3d);
+    thd->set_cluster_nctaid(kernel.get_cluster_dim());
+    thd->set_cluster_ctaid(cluster3d);
+    thd->set_clusterid(cluster_in_grid);
+    thd->set_nclusterid(kernel.get_ncluster_in_grid());
     if (kernel.entry()->get_ptx_version().extensions())
       thd->cpy_tid_to_reg(tid3d);
     thd->set_valid();
@@ -2204,6 +2232,7 @@ unsigned ptx_sim_init_thread(kernel_info_t &kernel,
     thd->func_info()->param_to_shared(thd->m_shared_mem, st);
     thd->func_info()->param_to_shared(thd->m_sstarr_mem, st);
     thd->m_cta_info = cta_info;
+    thd->m_cluster_info = cluster_info;
     cta_info->add_thread(thd);
     thd->m_local_mem = local_mem;
     if (g_debug_execution == -1) {
