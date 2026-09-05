@@ -84,7 +84,7 @@ bool ptx_cluster_info::all_threads_arrived() const {
 }
 
 bool ptx_cta_info::is_in_generic_shared_memory(addr_t addr) {
-  return isspace_shared(m_sm_idx, addr);
+  return isspace_shared(m_shader_id, addr);
 }
 
 ptx_cta_info::ptx_cta_info(unsigned sm_idx, gpgpu_context *ctx) {

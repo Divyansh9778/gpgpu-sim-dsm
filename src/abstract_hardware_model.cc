@@ -373,7 +373,7 @@ void warp_inst_t::generate_mem_accesses() {
         for (unsigned thread = subwarp * subwarp_size;
              thread < (subwarp + 1) * subwarp_size; thread++) {
           if (!active(thread)) continue;
-
+          
           if (m_per_scalar_thread[thread].target_shader_id == m_sid) {
             new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
             // FIXME: deferred allocation of shared memory should not accumulate

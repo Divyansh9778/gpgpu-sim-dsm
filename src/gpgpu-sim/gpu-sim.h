@@ -67,6 +67,7 @@
 #define DUMPLOG 333
 
 class gpgpu_context;
+class SM_2_SM_network;
 
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
@@ -668,10 +669,11 @@ class gpgpu_sim : public gpgpu_t {
    * @return false
    */
   bool is_SST_mode() { return m_config.is_SST_mode(); }
-
+  
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
-
+  class SM_2_SM_network *get_sm2sm_network() const { return m_sm2sm_network; }
+  
  protected:
   // clocks
   void reinit_clock_domains(void);
@@ -712,6 +714,7 @@ class gpgpu_sim : public gpgpu_t {
   double dram_time;
   double l2_time;
   double sm_2_sm_network_time;
+  class SM_2_SM_network *m_sm2sm_network;
 
   // debug
   bool gpu_deadlock;

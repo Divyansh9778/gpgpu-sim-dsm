@@ -51,6 +51,7 @@
 #include "stat-tool.h"
 #include "traffic_breakdown.h"
 #include "visualizer.h"
+#include "sm_2_sm_network.h"
 
 #define PRIORITIZE_MSHR_OVER_WB 1
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -1993,9 +1994,29 @@ bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
     fail_type = S_MEM;
     rc_fail = BK_CONF;
     m_stats->gpgpu_n_shmem_bkconflict++;
-  } else
-    rc_fail = NO_RC_FAIL;
-  return !stall;
+    return !stall;
+  }
+
+  // DSM: push any not-yet-sent cluster requests into the network, then
+  // stall until all of this instruction's cluster requests complete.
+  if (inst.has_pending_cluster_request()) {
+    class SM_2_SM_network *net = m_core->get_gpu()->get_sm2sm_network();
+    if (net) {
+      std::shared_ptr<cluster_shmem_request> req;
+      while ((req = inst.get_next_open_cluster_request()) != nullptr) {
+        net->Push(req->origin_shader_id, req->target_shader_id, req,
+                  req->size, REQ_NET);
+      }
+    }
+  }
+  if (!inst.cluster_request_complete()) {
+    fail_type = S_MEM;
+    rc_fail = BK_CONF;
+    return false;
+  }
+
+  rc_fail = NO_RC_FAIL;
+  return true;
 }
 
 mem_stage_stall_type ldst_unit::process_cache_access(

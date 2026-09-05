@@ -212,6 +212,23 @@ std::shared_ptr<cluster_shmem_request> IdealNetwork::Pop(
   return nullptr;
 }
 
+SM_2_SM_network* create_sm2sm_network(const char* type, unsigned n_shader,
+                                       const shader_core_config* config,
+                                       const gpgpu_sim* gpu) {
+  if (strcmp(type, "crossbar") == 0) {
+    return new Crossbar(n_shader, config, gpu);
+  } else if (strcmp(type, "ringbus") == 0) {
+    return new Ringbus(n_shader, config, gpu);
+  } else if (strcmp(type, "ideal") == 0) {
+    return new IdealNetwork(n_shader, config, gpu);
+  }
+  return nullptr;
+}
+
+void advance_sm2sm_network(SM_2_SM_network* net) {
+  if (net) net->Advance();
+}
+
 Ringbus::Ringbus(unsigned n_shader, const class shader_core_config* config,
                  const class gpgpu_sim* gpu)
     : SM_2_SM_network(n_shader, config, gpu),

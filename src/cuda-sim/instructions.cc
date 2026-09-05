@@ -3410,6 +3410,7 @@ void decode_space(memory_space_t &space, ptx_thread_info *thread,
                   cluster_info->get_cta_rank_of_shared_memory_region(addr);
               unsigned target_smid =
                   cluster_info->get_cta(cta_rank)->get_shader_id();
+              
               thread->m_last_shared_memory_target_shader_id = target_smid;
               addr = generic_to_shared(target_smid, addr);
               mem = cluster_info->get_cta(cta_rank)->get_shared_memory();
@@ -4110,6 +4111,7 @@ void mapa_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   int shader_id = thread->get_hw_sid();
   int target_shader_id =
       thread->m_cluster_info->get_cta(b.u32)->get_shader_id();
+
   assert(a.u64 + (target_shader_id - shader_id) * SHARED_MEM_SIZE_MAX > 0);
   addr_t addr = a.u64 + (target_shader_id - shader_id) * SHARED_MEM_SIZE_MAX;
 

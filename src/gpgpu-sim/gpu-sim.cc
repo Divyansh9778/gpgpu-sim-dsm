@@ -100,6 +100,16 @@ tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 #include "mem_latency_stat.h"
 
+class SM_2_SM_network;
+class Crossbar;
+class Ringbus;
+class IdealNetwork;
+
+SM_2_SM_network* create_sm2sm_network(const char* type, unsigned n_shader,
+                                       const shader_core_config* config,
+                                       const gpgpu_sim* gpu);
+void advance_sm2sm_network(class SM_2_SM_network* net);
+
 void sm2sm_network_options(class OptionParser *opp);
 
 void power_config::reg_options(class OptionParser *opp) {
@@ -1067,6 +1077,10 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
     icnt_wrapper_init();
     icnt_create(m_shader_config->n_simt_clusters,
                 m_memory_config->m_n_mem_sub_partition);
+
+    m_sm2sm_network = create_sm2sm_network(m_shader_config->sm_2_sm_network_type,
+                                            m_shader_config->n_simt_clusters,
+                                            m_shader_config, this);
   }
   time_vector_create(NUM_MEM_REQ_STAT);
   fprintf(stdout,
@@ -2025,6 +2039,10 @@ void gpgpu_sim::cycle() {
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
       m_cluster[i]->icnt_cycle();
   }
+  if (clock_mask & SM2SM) {
+    advance_sm2sm_network(m_sm2sm_network);
+  }
+
   unsigned partiton_replys_in_parallel_per_cycle = 0;
   if (clock_mask & ICNT) {
     // pop from memory controller to interconnect
