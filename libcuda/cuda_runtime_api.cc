@@ -2947,6 +2947,11 @@ __host__ cudaError_t CUDARTAPI cudaLaunch(const char *hostFun) {
   return cudaLaunchInternal(hostFun);
 }
 
+// cudaLaunchConfig_t and cudaLaunchAttributeClusterDimension are CUDA
+// 12.0+ types (thread-block cluster support did not exist before Hopper).
+// Guarded out on older toolchains so builds against CUDA < 12 still
+// compile; cluster-kernel launch is simply unavailable there.
+#if (CUDART_VERSION >= 12000)
 __host__ cudaError_t CUDARTAPI cudaLaunchKernelExC(
     const cudaLaunchConfig_t *config, const void *func, void **args) {
   dim3 clusterDim(0, 0, 0);
@@ -2977,6 +2982,7 @@ __host__ cudaError_t CUDARTAPI cudaLaunchKernelExC(
   cudaLaunchInternal((const char *)func);
   return g_last_cudaError = cudaSuccess;
 }
+#endif  // CUDART_VERSION >= 12000
 
 __host__ cudaError_t CUDARTAPI cudaLaunchKernel(const char *hostFun,
                                                 dim3 gridDim, dim3 blockDim,
