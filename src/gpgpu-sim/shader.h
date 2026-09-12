@@ -1705,6 +1705,10 @@ class shader_core_config : public core_config {
 
   unsigned n_simt_cores_per_cluster;
   unsigned n_simt_clusters;
+
+  char *n_simt_cores_per_gpc;
+  mutable std::vector<int> m_cores_per_gpc_list;
+
   unsigned n_simt_ejection_buffer_size;
   unsigned ldst_unit_response_queue_size;
 
@@ -2621,12 +2625,41 @@ class exec_shader_core_ctx : public shader_core_ctx {
                                                const warp_inst_t *pI);
 };
 
+class gpu_processing_cluster {
+ public:
+  gpu_processing_cluster(class gpgpu_sim *gpu, const shader_core_config *config,
+                         unsigned id, unsigned shader_per_gpc)
+      : m_gpc_id(id), m_gpu(gpu), m_config(config),
+        m_shader_per_gpc(shader_per_gpc) {
+    m_clusters.clear();
+    unsigned maximum_thread_block_cluster =
+        config->max_cta_per_core * config->n_simt_cores_per_cluster *
+        m_shader_per_gpc;
+    m_gpc_status.resize(maximum_thread_block_cluster);
+  }
+
+  void add_cluster(class simt_core_cluster *cluster) {
+    m_clusters.push_back(cluster);
+  }
+  unsigned get_gpc_id() const { return m_gpc_id; }
+  unsigned get_shader_per_gpc() const { return m_shader_per_gpc; }
+
+  std::vector<unsigned> m_gpc_status;
+
+ private:
+  std::vector<simt_core_cluster *> m_clusters;
+  unsigned m_gpc_id;
+  gpgpu_sim *m_gpu;
+  const shader_core_config *m_config;
+  unsigned m_shader_per_gpc;
+};
+
 class simt_core_cluster {
  public:
   simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                     const shader_core_config *config,
                     const memory_config *mem_config, shader_core_stats *stats,
-                    memory_stats_t *mstats);
+                    memory_stats_t *mstats, gpu_processing_cluster *gpc);
 
   void core_cycle();
   void icnt_cycle();
@@ -2679,6 +2712,7 @@ class simt_core_cluster {
   memory_stats_t *m_memory_stats;
   shader_core_ctx **m_core;
   const memory_config *m_mem_config;
+  gpu_processing_cluster *m_gpc;
 
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
@@ -2691,8 +2725,10 @@ class exec_simt_core_cluster : public simt_core_cluster {
                          const shader_core_config *config,
                          const memory_config *mem_config,
                          class shader_core_stats *stats,
-                         class memory_stats_t *mstats)
-      : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats) {
+                         class memory_stats_t *mstats,
+                         gpu_processing_cluster *gpc)
+      : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats,
+                          gpc) {
     create_shader_core_ctx();
   }
 
@@ -2709,9 +2745,10 @@ class sst_simt_core_cluster : public exec_simt_core_cluster {
                         const shader_core_config *config,
                         const memory_config *mem_config,
                         class shader_core_stats *stats,
-                        class memory_stats_t *mstats)
+                        class memory_stats_t *mstats,
+                        gpu_processing_cluster *gpc)
       : exec_simt_core_cluster(gpu, cluster_id, config, mem_config, stats,
-                               mstats) {}
+                               mstats, gpc) {}
 
   /**
    * @brief Check if SST memory request injection

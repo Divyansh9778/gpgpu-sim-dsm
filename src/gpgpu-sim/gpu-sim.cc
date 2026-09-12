@@ -467,6 +467,11 @@ void shader_core_config::reg_options(class OptionParser *opp) {
                          &sm_2_sm_network_type,
                          "SM-to-SM network type <none|ringbus|crossbar|ideal>",
                          "none");
+  option_parser_register(opp, "-gpgpu_n_cores_per_gpc", OPT_CSTR,
+                         &n_simt_cores_per_gpc,
+                         "Comma-separated list of SMs per GPC; empty = one "
+                         "GPC per SIMT cluster",
+                         "");
   option_parser_register(opp, "-sm_2_sm_network_log", OPT_BOOL,
                          &sm_2_sm_network_log,
                          "Enable SM-to-SM network logging", "0");
@@ -994,20 +999,33 @@ void gpgpu_sim::stop_all_running_kernels() {
 }
 
 void exec_gpgpu_sim::createSIMTCluster() {
+  assert(!m_gpcs.empty());
   m_cluster = new simt_core_cluster *[m_shader_config->n_simt_clusters];
-  for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
+  const auto &cores_per_gpc = m_shader_config->m_cores_per_gpc_list;
+  unsigned gpc_id = 0;
+  int remaining = cores_per_gpc.at(0);
+  const int cores_per_cluster = m_shader_config->n_simt_cores_per_cluster;
+  for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+    if (remaining == 0) remaining = cores_per_gpc.at(++gpc_id);
     m_cluster[i] =
         new exec_simt_core_cluster(this, i, m_shader_config, m_memory_config,
-                                   m_shader_stats, m_memory_stats);
+                                   m_shader_stats, m_memory_stats,
+                                   &m_gpcs.at(gpc_id));
+    m_gpcs.at(gpc_id).add_cluster(m_cluster[i]);
+    remaining -= cores_per_cluster;
+    assert(remaining >= 0);
+  }
 }
 
 // SST get its own simt_cluster
 void sst_gpgpu_sim::createSIMTCluster() {
+  assert(!m_gpcs.empty());
   m_cluster = new simt_core_cluster *[m_shader_config->n_simt_clusters];
   for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
     m_cluster[i] =
         new sst_simt_core_cluster(this, i, m_shader_config, m_memory_config,
-                                  m_shader_stats, m_memory_stats);
+                                  m_shader_stats, m_memory_stats,
+                                  &m_gpcs.at(0));
   SST_gpgpu_reply_buffer.resize(m_shader_config->n_simt_clusters);
 }
 
@@ -1016,6 +1034,42 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   gpgpu_ctx = ctx;
   m_shader_config = &m_config.m_shader_config;
   m_memory_config = &m_config.m_memory_config;
+
+  // parse gpgpu_n_cores_per_gpc into m_shader_config->m_cores_per_gpc_list
+  if (strlen(m_shader_config->n_simt_cores_per_gpc) > 0) {
+    std::stringstream gs(m_shader_config->n_simt_cores_per_gpc);
+    std::string temp;
+    while (gs.good()) {
+      std::getline(gs, temp, ',');
+      if (temp.size())
+        m_shader_config->m_cores_per_gpc_list.push_back(std::stoi(temp));
+    }
+  }
+  if (m_shader_config->m_cores_per_gpc_list.empty()) {
+    m_shader_config->m_cores_per_gpc_list = std::vector<int>(
+        m_shader_config->n_simt_clusters, m_shader_config->n_simt_cores_per_cluster);
+  }
+
+  // sanity check: total SMs assigned across GPCs must match the shader config
+  {
+    int total_sms_in_gpcs = 0;
+    for (int n : m_shader_config->m_cores_per_gpc_list)
+      total_sms_in_gpcs += n;
+    if ((unsigned)total_sms_in_gpcs != m_shader_config->num_shader()) {
+      printf(
+          "GPGPU-Sim uArch: Error ** gpgpu_n_cores_per_gpc sums to %d, but "
+          "num_shader() is %u. These must match.\n",
+          total_sms_in_gpcs, m_shader_config->num_shader());
+      abort();
+    }
+  }
+
+  m_gpcs.reserve(m_shader_config->m_cores_per_gpc_list.size());
+  for (unsigned i = 0; i < m_shader_config->m_cores_per_gpc_list.size(); i++) {
+    m_gpcs.emplace_back(this, m_shader_config, i,
+                        m_shader_config->m_cores_per_gpc_list.at(i));
+  }
+
   ctx->ptx_parser->set_ptx_warp_size(m_shader_config);
   ptx_file_line_stats_create_exposed_latency_tracker(m_config.num_shader());
 

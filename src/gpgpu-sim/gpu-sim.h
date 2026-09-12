@@ -725,6 +725,8 @@ class gpgpu_sim : public gpgpu_t {
   const struct cudaDeviceProp *m_cuda_properties;
   const shader_core_config *m_shader_config;
   const memory_config *m_memory_config;
+  
+  std::vector<gpu_processing_cluster> m_gpcs;
 
   // stats
   class shader_core_stats *m_shader_stats;

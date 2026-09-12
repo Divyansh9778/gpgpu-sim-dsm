@@ -4548,7 +4548,8 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                                      const shader_core_config *config,
                                      const memory_config *mem_config,
                                      shader_core_stats *stats,
-                                     class memory_stats_t *mstats) {
+                                     class memory_stats_t *mstats,
+                                     gpu_processing_cluster *gpc) {
   m_config = config;
   m_cta_issue_next_core = m_config->n_simt_cores_per_cluster -
                           1;  // this causes first launch to use hw cta 0
@@ -4557,6 +4558,8 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
   m_stats = stats;
   m_memory_stats = mstats;
   m_mem_config = mem_config;
+  m_gpc = gpc;
+  for (unsigned i = 0; i < gpc->m_gpc_status.size(); i++) gpc->m_gpc_status[i] = 0;
 }
 
 void simt_core_cluster::core_cycle() {
