@@ -52,7 +52,18 @@ cluster addressing was added — a remote address is built by remapping
 into another CTA's window and can exceed 32 bits. Widened to `.u64`.
 (`src/cuda-sim/instructions.cc`)
 
-**3. The SM-to-SM network was fully implemented but never connected.**
+**3. Cluster atomics resolved to the wrong SM's shared memory.**
+`atom_callback()` and `atom_impl()` both called `generic_to_shared()`
+against the executing SM's own id unconditionally — even when the
+address belonged to another SM's shared memory under a cluster. This is
+the same class of bug `decode_space()` had before `58e1cdda` fixed it
+for ordinary loads/stores; the atomics path was missed at the time.
+Fixed to mirror that logic in both functions: check `isspace_shared()`
+first, and if the address isn't local, resolve the owning CTA via
+`ptx_cluster_info` and generate the address against the correct target
+SM. (`src/cuda-sim/instructions.cc`)
+
+**4. The SM-to-SM network was fully implemented but never connected.**
 `Crossbar`, `Ringbus`, and `IdealNetwork` all existed and compiled, but
 nothing in the simulator ever instantiated one or advanced it — running
 with `crossbar` vs `none` produced identical cycle counts because every
@@ -68,7 +79,7 @@ result below.
 ## Results
 
 **Timing model activation.** Once the SM-to-SM network was actually wired
-into the critical path (fix #3 above), an isolated DSM test kernel — one
+into the critical path (fix #4 above), an isolated DSM test kernel — one
 cluster, one remote shared-memory read — moved from 5,347 cycles (network
 bypassed) to 5,529 cycles (network modeled): a 182-cycle, 3.4% difference.
 Cross-SM shared-memory reads and atomics now also return correct values
