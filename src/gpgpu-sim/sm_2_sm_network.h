@@ -61,7 +61,8 @@ class SM_2_SM_network {
  public:
   // Functions for local interconnect
 
-  SM_2_SM_network(unsigned n_shader, const class shader_core_config* config,
+  SM_2_SM_network(unsigned n_shader, unsigned first_sid,
+                  const class shader_core_config* config,
                   const class gpgpu_sim* gpu);
 
   // void Init();
@@ -82,14 +83,16 @@ class SM_2_SM_network {
 
  protected:
   unsigned m_n_shader, m_n_mem;
+  unsigned m_first_sid;  // global SM id of this network's port 0
   const class shader_core_config* m_config;
   const class gpgpu_sim* m_gpu;
-  unsigned sid_to_gid(unsigned sid) const { return sid % m_n_shader; }
+  unsigned sid_to_gid(unsigned sid) const { return sid - m_first_sid; }
 };
 
 class Crossbar : public SM_2_SM_network {
  public:
-  Crossbar(unsigned n_shader, const class shader_core_config* config,
+  Crossbar(unsigned n_shader, unsigned first_sid,
+           const class shader_core_config* config,
            const class gpgpu_sim* gpu);
   ~Crossbar();
   void Init() {};
@@ -129,7 +132,8 @@ class Crossbar : public SM_2_SM_network {
 
 class IdealNetwork : public SM_2_SM_network {
  public:
-  IdealNetwork(unsigned n_shader, const class shader_core_config* config,
+  IdealNetwork(unsigned n_shader, unsigned first_sid,
+                const class shader_core_config* config,
                const class gpgpu_sim* gpu);
   ~IdealNetwork() {}
   void Init() {};
@@ -166,7 +170,8 @@ class IdealNetwork : public SM_2_SM_network {
 
 class Ringbus : public SM_2_SM_network {
  public:
-  Ringbus(unsigned n_shader, const class shader_core_config* config,
+  Ringbus(unsigned n_shader, unsigned first_sid,
+          const class shader_core_config* config,
           const class gpgpu_sim* gpu);
   ~Ringbus() {}
   void Init() {};

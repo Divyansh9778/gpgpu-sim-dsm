@@ -36,17 +36,20 @@ cluster_shmem_request::cluster_shmem_request(warp_inst_t* warp, addr_t address,
   m_size = size;
 }
 
-SM_2_SM_network::SM_2_SM_network(unsigned n_shader,
+SM_2_SM_network::SM_2_SM_network(unsigned n_shader, unsigned first_sid,
                                  const class shader_core_config* config,
                                  const class gpgpu_sim* gpu) {
   m_n_shader = n_shader;
+  m_n_mem = 0;
+  m_first_sid = first_sid;
   m_config = config;
   m_gpu = gpu;
 }
 
-Crossbar::Crossbar(unsigned n_shader, const class shader_core_config* config,
+Crossbar::Crossbar(unsigned n_shader, unsigned first_sid, 
+                   const class shader_core_config* config,
                    const class gpgpu_sim* gpu)
-    : SM_2_SM_network(n_shader, config, gpu),
+    : SM_2_SM_network(n_shader, first_sid, config, gpu),
       rr_pointers(n_shader, 0),
       input_queues(n_shader),
       output_queues(n_shader),
@@ -157,9 +160,10 @@ void Crossbar::Advance() {
   ++m_time;
 }
 
-IdealNetwork::IdealNetwork(unsigned n_shader, const shader_core_config* config,
+IdealNetwork::IdealNetwork(unsigned n_shader, unsigned first_sid,
+                           const shader_core_config* config,
                            const gpgpu_sim* gpu)
-    : SM_2_SM_network(n_shader, config, gpu),
+    : SM_2_SM_network(n_shader, first_sid, config, gpu),
       input_queues(n_shader),
       output_queues(n_shader),
       m_time(0),
@@ -213,14 +217,15 @@ std::shared_ptr<cluster_shmem_request> IdealNetwork::Pop(
 }
 
 SM_2_SM_network* create_sm2sm_network(const char* type, unsigned n_shader,
+                                       unsigned first_sid,
                                        const shader_core_config* config,
                                        const gpgpu_sim* gpu) {
   if (strcmp(type, "crossbar") == 0) {
-    return new Crossbar(n_shader, config, gpu);
+    return new Crossbar(n_shader, first_sid, config, gpu);
   } else if (strcmp(type, "ringbus") == 0) {
-    return new Ringbus(n_shader, config, gpu);
+    return new Ringbus(n_shader, first_sid, config, gpu);
   } else if (strcmp(type, "ideal") == 0) {
-    return new IdealNetwork(n_shader, config, gpu);
+    return new IdealNetwork(n_shader, first_sid, config, gpu);
   }
   return nullptr;
 }
@@ -229,9 +234,10 @@ void advance_sm2sm_network(SM_2_SM_network* net) {
   if (net) net->Advance();
 }
 
-Ringbus::Ringbus(unsigned n_shader, const class shader_core_config* config,
+Ringbus::Ringbus(unsigned n_shader, unsigned first_sid,
+                 const class shader_core_config* config,
                  const class gpgpu_sim* gpu)
-    : SM_2_SM_network(n_shader, config, gpu),
+    : SM_2_SM_network(n_shader, first_sid, config, gpu),
       output_queues(n_shader),
       num_nodes(n_shader),
       ring_(n_shader),
