@@ -1188,6 +1188,7 @@ void atom_callback(const inst_t *inst, ptx_thread_info *thread) {
       unsigned smid = thread->get_hw_sid();
       if (isspace_shared(smid, effective_address)) {
         effective_address = generic_to_shared(smid, effective_address);
+        thread->m_last_shared_memory_target_shader_id = smid;
       } else {
         ptx_cluster_info *cluster_info = thread->m_cluster_info;
         unsigned cta_rank = cluster_info->get_cta_rank_of_shared_memory_region(
@@ -1504,6 +1505,7 @@ void atom_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
       unsigned smid = thread->get_hw_sid();
       if (isspace_shared(smid, effective_address)) {
         effective_address_final = generic_to_shared(smid, effective_address);
+        thread->m_last_shared_memory_target_shader_id = smid;
       } else {
         ptx_cluster_info *cluster_info = thread->m_cluster_info;
         unsigned cta_rank = cluster_info->get_cta_rank_of_shared_memory_region(
