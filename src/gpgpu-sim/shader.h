@@ -276,6 +276,9 @@ class shd_warp_t {
   unsigned long long get_streamID() const { return m_streamID; }
   unsigned get_cta_id() const { return m_cta_id; }
 
+  void set_gpc_slot(unsigned slot) { m_gpc_slot = slot; }
+  unsigned get_gpc_slot() const { return m_gpc_slot; }
+
   unsigned get_dynamic_warp_id() const { return m_dynamic_warp_id; }
   unsigned get_warp_id() const { return m_warp_id; }
 
@@ -288,6 +291,7 @@ class shd_warp_t {
   class shader_core_ctx *m_shader;
   unsigned long long m_streamID;
   unsigned m_cta_id;
+  unsigned m_gpc_slot = (unsigned)-1;  // GPC cluster slot; -1 = none
   unsigned m_warp_id;
   unsigned m_warp_size;
   unsigned m_dynamic_warp_id;
@@ -2084,7 +2088,7 @@ class shader_core_ctx : public core_t {
   void cycle();
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
-  void issue_block2core(class kernel_info_t &kernel);
+  void issue_block2core(class kernel_info_t &kernel, unsigned cluster_slot = (unsigned)-1);
 
   void cache_flush();
   void cache_invalidate();
@@ -2454,8 +2458,7 @@ class shader_core_ctx : public core_t {
   int test_res_bus(int latency);
   address_type next_pc(int tid) const;
   void fetch();
-  void register_cta_thread_exit(unsigned cta_num, kernel_info_t *kernel);
-
+  void register_cta_thread_exit(unsigned cta_num, kernel_info_t *kernel, unsigned cluster_slot);
   void decode();
 
   void issue();

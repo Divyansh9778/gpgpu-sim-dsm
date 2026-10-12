@@ -1923,7 +1923,8 @@ unsigned exec_shader_core_ctx::sim_init_thread(
                              num_threads, core, hw_cta_id, hw_warp_id, gpu);
 }
 
-void shader_core_ctx::issue_block2core(kernel_info_t &kernel) {
+void shader_core_ctx::issue_block2core(kernel_info_t &kernel,
+                                       unsigned cluster_slot) {
   if (!m_config->gpgpu_concurrent_kernel_sm)
     set_max_cta(kernel);
   else
@@ -2027,6 +2028,14 @@ void shader_core_ctx::issue_block2core(kernel_info_t &kernel) {
 
   // initialize the SIMT stacks and fetch hardware
   init_warps(free_cta_hw_id, start_thread, end_thread, ctaid, cta_size, kernel);
+  {
+    unsigned start_warp = start_thread / m_config->warp_size;
+    unsigned end_warp = end_thread / m_config->warp_size +
+                        ((end_thread % m_config->warp_size) ? 1 : 0);
+    for (unsigned w = start_warp; w < end_warp; ++w)
+      m_warp[w]->set_gpc_slot(cluster_slot);
+  }
+
   m_n_active_cta++;
 
   shader_CTA_count_log(m_sid, 1);

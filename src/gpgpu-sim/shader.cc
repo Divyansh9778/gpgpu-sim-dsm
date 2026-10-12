@@ -960,13 +960,17 @@ void shader_core_ctx::fetch() {
             unsigned tid = warp_id * m_config->warp_size + t;
             if (m_threadState[tid].m_active == true) {
               m_threadState[tid].m_active = false;
+
               unsigned cta_id = m_warp[warp_id]->get_cta_id();
+              unsigned cluster_slot = m_warp[warp_id]->get_gpc_slot();
               if (m_thread[tid] == NULL) {
                 register_cta_thread_exit(cta_id,
-                                         m_warp[warp_id]->get_kernel_info());
+                                         m_warp[warp_id]->get_kernel_info(),
+                                         cluster_slot);
               } else {
                 register_cta_thread_exit(cta_id,
-                                         &(m_thread[tid]->get_kernel()));
+                                         &(m_thread[tid]->get_kernel()),
+                                         cluster_slot);
               }
               m_not_completed -= 1;
               m_active_threads.reset(tid);
@@ -3024,7 +3028,8 @@ void ldst_unit::cycle() {
 }
 
 void shader_core_ctx::register_cta_thread_exit(unsigned cta_num,
-                                               kernel_info_t *kernel) {
+                                               kernel_info_t *kernel,
+                                               unsigned cluster_slot) {
   assert(m_cta_status[cta_num] > 0);
   m_cta_status[cta_num]--;
   if (!m_cta_status[cta_num]) {
@@ -3034,6 +3039,12 @@ void shader_core_ctx::register_cta_thread_exit(unsigned cta_num,
     m_n_active_cta--;
     m_barriers.deallocate_barrier(cta_num);
     shader_CTA_count_unlog(m_sid, 1);
+
+    if (cluster_slot != (unsigned)-1) {
+      std::vector<unsigned> &st = m_cluster->get_gpc()->m_gpc_status;
+      assert(st.at(cluster_slot) > 0);
+      st.at(cluster_slot)--;
+    }
 
     SHADER_DPRINTF(
         LIVENESS,
