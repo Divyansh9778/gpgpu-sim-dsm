@@ -468,6 +468,10 @@ void shader_core_ctx::create_exec_pipeline() {
   }
 }
 
+class SM_2_SM_network *shader_core_ctx::get_gpc_network() const {
+  return m_cluster->get_gpc()->get_network();
+}
+
 shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
                                  class simt_core_cluster *cluster,
                                  unsigned shader_id, unsigned tpc_id,
@@ -2000,7 +2004,7 @@ bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
   // DSM: push any not-yet-sent cluster requests into the network, then
   // stall until all of this instruction's cluster requests complete.
   if (inst.has_pending_cluster_request()) {
-    class SM_2_SM_network *net = m_core->get_gpu()->get_sm2sm_network();
+    class SM_2_SM_network *net = m_core->get_gpc_network();
     if (net) {
       std::shared_ptr<cluster_shmem_request> req;
       while ((req = inst.get_next_open_cluster_request()) != nullptr) {

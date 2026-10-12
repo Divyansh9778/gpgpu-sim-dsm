@@ -2113,6 +2113,8 @@ class shader_core_ctx : public core_t {
   }
   kernel_info_t *get_kernel() { return m_kernel; }
   unsigned get_sid() const { return m_sid; }
+  
+  class SM_2_SM_network *get_gpc_network() const;
 
   // used by functional simulation:
   // modifiers
@@ -2663,7 +2665,7 @@ class gpu_processing_cluster {
 };
 
 class simt_core_cluster {
- public:
+public:
   simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                     const shader_core_config *config,
                     const memory_config *mem_config, shader_core_stats *stats,
@@ -2695,7 +2697,9 @@ class simt_core_cluster {
   void print_not_completed(FILE *fp) const;
   unsigned get_n_active_cta() const;
   unsigned get_n_active_sms() const;
+
   gpgpu_sim *get_gpu() { return m_gpu; }
+  class gpu_processing_cluster *get_gpc() const { return m_gpc; }
 
   void display_pipeline(unsigned sid, FILE *fout, int print_mem, int mask);
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,

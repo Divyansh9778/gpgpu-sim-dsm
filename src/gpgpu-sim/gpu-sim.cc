@@ -2106,7 +2106,7 @@ void gpgpu_sim::cycle() {
       m_cluster[i]->icnt_cycle();
   }
   if (clock_mask & SM2SM) {
-    advance_sm2sm_network(m_sm2sm_network);
+    for (auto &gpc : m_gpcs) advance_sm2sm_network(gpc.get_network());
   }
 
   unsigned partiton_replys_in_parallel_per_cycle = 0;
