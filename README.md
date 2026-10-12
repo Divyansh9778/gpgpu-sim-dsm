@@ -29,8 +29,9 @@ timing model for the request that has to travel there.
 | PTX front-end | Lexer and grammar support for cluster syntax (`.explicitcluster`, `.reqnctapercluster`, cluster special registers); two new opcodes, `mapa` and `getctarank` | `src/cuda-sim/ptx.l`, `ptx.y`, `opcodes.def`, `ptx_ir.cc/.h` |
 | Functional cluster model | `ptx_cluster_info` class tracking which CTAs belong to a cluster; `decode_space()` extended to resolve a shared address to its owning CTA/SM when it falls outside the executing SM's own window | `src/cuda-sim/ptx_sim.cc/.h`, `src/cuda-sim/instructions.cc` |
 | CUDA runtime shim | `cudaLaunchKernelEx` reads the cluster dimension from the launch config and threads it into `kernel_info_t`, without which a cluster kernel cannot be launched at all | `src/cuda-sim/cuda-sim.cc`, `src/abstract_hardware_model.h/.cc` |
-| Timing infrastructure | SM-to-SM network model (`Crossbar`, `Ringbus`, `IdealNetwork`) and the `cluster_shmem_request` message class; new SM2SM clock domain; instantiated and wired into `ldst_unit::shared_cycle()` so remote requests actually stall on the network | `src/gpgpu-sim/sm_2_sm_network.cc/.h`, `src/gpgpu-sim/gpu-sim.cc/.h`, `src/gpgpu-sim/shader.cc` |
+| Timing infrastructure | SM-to-SM network model (`Crossbar`, `Ringbus`, `IdealNetwork`) and the `cluster_shmem_request` message class; new SM2SM clock domain; one network instance per GPC, wired into `ldst_unit::shared_cycle()` so remote requests actually stall on the network | `src/gpgpu-sim/sm_2_sm_network.cc/.h`, `src/gpgpu-sim/gpu-sim.cc/.h`, `src/gpgpu-sim/shader.cc` |
 | Cluster construction & barriers | Cluster-aware CTA iterator so a cluster's blocks are issued together; `barrier.cluster.arrive`/`wait` support | `src/gpgpu-sim/shader.cc/.h`, `src/cuda-sim/instructions.cc` (`bar_impl`) |
+| GPC model & cluster placement | `gpu_processing_cluster` groups SMs (set with `-gpgpu_n_cores_per_gpc`) and owns its own SM-to-SM network; a cross-GPC guard aborts with a clear error if a request leaves its GPC; GPC-aware issue places all CTAs of one cluster inside a single GPC (opt-in) | `src/gpgpu-sim/shader.cc/.h`, `src/gpgpu-sim/gpu-sim.cc/.h`, `src/gpgpu-sim/sm_2_sm_network.cc/.h` |
 
 ---
 
@@ -74,6 +75,22 @@ completion, and connected the previously dead SM2SM clock-domain tick to
 `Advance()` the network each cycle. This is the change behind the timing
 result below.
 
+**5. Local shared atomics left the target SM id unset.**
+`atom_impl()` and `atom_callback()` set `m_last_shared_memory_target_shader_id`
+only when an address resolved to *another* CTA. A local shared atomic (for
+example `mapa` to the CTA's own rank) left it at its initial `UINT_MAX`, so
+`generate_mem_accesses()` classified it as a remote request to SM
+4294967295, and the cross-GPC guard aborted. The id is now set to the
+executing SM in the local branch. (`src/cuda-sim/instructions.cc`)
+
+**6. Remote atomics updated the wrong CTA's shared memory.**
+After resolving a remote address against the target CTA, `atom_callback()`
+still read and wrote the *executing* thread's own `m_shared_mem`, so
+remote `atomicAdd` updates landed in the wrong CTA's bins. It now uses the
+target CTA's shared memory for the read-modify-write.
+`Histogram.Cluster` went from 1225 mismatches to 0 in both `none` and
+`crossbar`. (`src/cuda-sim/instructions.cc`)
+
 ---
 
 ## Results
@@ -97,10 +114,25 @@ communication-heavy access patterns — which is the result a supervisor
 would expect from a feature whose entire premise is trading DRAM/L2
 traffic for on-chip network traffic that isn't free.
 
+**Cluster kernels with per-GPC networks.** Four 16-SM GPCs (64 SMs),
+GPC-aware issue, PTX functional mode, ClusterSim's `test.config`. Both
+kernels produce correct output.
+
+| Kernel | `none` | `crossbar` | Overhead |
+|---|---|---|---|
+| `matmul_gpu_cluster` (64x64, 4x4 cluster) | 11,292 | 15,818 | +4,526 (+40%) |
+| `clusterHistkernel` | 7,001 | 13,834 | +6,833 (+98%) |
+
+Each number is a single run of one kernel, so these show that the network
+cost is workload-dependent, not a general figure. The histogram's higher
+overhead has not been investigated.
+
 **Regression correctness.** A 10-benchmark trace-driven regression suite
 (Rodinia 2.0) shows 0% cycle-count deviation from unmodified Accel-Sim
 when DSM is disabled, confirming the port doesn't change behavior for
-non-cluster kernels.
+non-cluster kernels. The GPC-aware issue path is opt-in (it is used only
+when `-gpgpu_n_cores_per_gpc` is set), so this regression exercises the
+original issue path and stays unchanged.
 
 ---
 
@@ -109,7 +141,7 @@ non-cluster kernels.
 General build and environment setup (CMake, dependencies, CUDA version) is
 unchanged from upstream — see `UPSTREAM_README.md`.
 
-DSM-specific configuration is one flag:
+DSM-specific configuration:
 
 ```
 -sm_2_sm_network_type <none|crossbar|ringbus|ideal>
@@ -117,13 +149,36 @@ DSM-specific configuration is one flag:
 
 `none` charges a flat configured latency for a remote shared-memory
 access without modeling the interconnect; the other three route requests
-through the corresponding `SM_2_SM_network` implementation. The default
-RTX3070 config enables `crossbar`.
+through the corresponding `SM_2_SM_network` implementation. Check the
+value in the config you run with. ClusterSim's `test.config` uses `none`.
+
+```
+-gpgpu_n_cores_per_gpc <n0,n1,...>
+```
+
+A literal comma-separated list of SMs per GPC; it must sum to the total SM
+count, or the simulator aborts at startup. For example, `16,16,16,16` for 64
+SMs. A thread-block cluster must fit inside one GPC: if a request crosses a
+GPC boundary, the simulator aborts with an error naming the origin SM, the
+target SM, and the GPC's range. Setting this flag also switches CTA issue to
+the GPC-aware path, which places a cluster's blocks inside a single GPC.
+Leaving it unset keeps the original per-SIMT-cluster issue path.
 
 To run a cluster kernel, launch it with `cudaLaunchKernelEx` and a
 `cudaLaunchAttributeClusterDimension` attribute, as in ClusterSim's own
-benchmarks — no separate simulator flag is needed to enable cluster
-launch, only to select the network model used for its timing.
+benchmarks. No separate flag is needed to enable cluster launch; the flags
+above select the network model and GPC layout used for its timing.
+
+---
+
+## Limitations
+
+- Only the parallel cluster-placement policy is ported. ClusterSim's
+  load-balanced policy is not.
+- Cluster-aware execution works in PTX functional mode. Trace-driven mode has
+  no record of which SM owns a shared-memory address, so remote shared-memory
+  access is not modelled there.
+- Cluster results are single runs on two kernels (matmul and histogram).
 
 ---
 
@@ -132,8 +187,8 @@ launch, only to select the network model used for its timing.
 - `src/cuda-sim/` — PTX front-end and functional cluster model (parsing,
   address resolution, cluster construction)
 - `src/gpgpu-sim/` — timing model: SM-to-SM network, clock domain,
-  cluster-aware CTA issue, cluster barriers
-- `configs/tested-cfgs/SM86_RTX3070/` — default config with DSM enabled
+  GPC model, cluster-aware CTA issue, cluster barriers
+- `configs/tested-cfgs/SM86_RTX3070/` — RTX 3070 config
 - `gpu-simulator/trace-driven/` — trace-driven integration
 
 ---
