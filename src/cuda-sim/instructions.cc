@@ -1179,6 +1179,7 @@ void atom_callback(const inst_t *inst, ptx_thread_info *thread) {
   // Check state space
   addr_t effective_address = src1_data.u64;
   memory_space_t space = pI->get_space();
+  memory_space *target_shared_mem = NULL;
   if (space == undefined_space) {
     // generic space - determine space via address
     if (whichspace(effective_address) == global_space) {
@@ -1197,6 +1198,7 @@ void atom_callback(const inst_t *inst, ptx_thread_info *thread) {
             cluster_info->get_cta(cta_rank)->get_shader_id();
         thread->m_last_shared_memory_target_shader_id = target_smid;
         effective_address = generic_to_shared(target_smid, effective_address);
+        target_shared_mem = cluster_info->get_cta(cta_rank)->get_shared_memory();
       }
       space = shared_space;
     } else {
@@ -1209,7 +1211,7 @@ void atom_callback(const inst_t *inst, ptx_thread_info *thread) {
   if (space == global_space)
     mem = thread->get_global_memory();
   else if (space == shared_space)
-    mem = thread->m_shared_mem;
+    mem = target_shared_mem ? target_shared_mem : thread->m_shared_mem;
   else
     abort();
 
