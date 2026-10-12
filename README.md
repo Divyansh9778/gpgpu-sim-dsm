@@ -66,14 +66,12 @@ SM. (`src/cuda-sim/instructions.cc`)
 
 **4. The SM-to-SM network was fully implemented but never connected.**
 `Crossbar`, `Ringbus`, and `IdealNetwork` all existed and compiled, but
-nothing in the simulator ever instantiated one or advanced it — running
-with `crossbar` vs `none` produced identical cycle counts because every
+nothing in the simulator ever instantiated one or advanced it, so every
 remote request bypassed the network entirely. Added a
-`create_sm2sm_network()` factory invoked from the `gpgpu_sim` constructor,
-hooked `ldst_unit::shared_cycle()` to push requests into it and stall on
-completion, and connected the previously dead SM2SM clock-domain tick to
-`Advance()` the network each cycle. This is the change behind the timing
-result below.
+`create_sm2sm_network()` factory, hooked `ldst_unit::shared_cycle()` to
+push requests into it and stall on completion, and connected the
+previously dead SM2SM clock-domain tick to `Advance()` the network each
+cycle.
 
 **5. Local shared atomics left the target SM id unset.**
 `atom_impl()` and `atom_callback()` set `m_last_shared_memory_target_shader_id`
@@ -91,48 +89,62 @@ target CTA's shared memory for the read-modify-write.
 `Histogram.Cluster` went from 1225 mismatches to 0 in both `none` and
 `crossbar`. (`src/cuda-sim/instructions.cc`)
 
+**7. `ideal` and `ringbus` networks never completed requests.**
+Only `Crossbar::Advance()` set `cluster_shmem_request::complete` on
+delivery. With `ideal` or `ringbus`, any remote access waited forever and
+the simulator reported a deadlock. Both now mark the request complete on
+delivery; a per-message debug print in `Ringbus::Advance()` was removed.
+(`src/gpgpu-sim/sm_2_sm_network.cc`)
+
 ---
 
 ## Results
 
-**Timing model activation.** Once the SM-to-SM network was actually wired
-into the critical path (fix #4 above), an isolated DSM test kernel — one
-cluster, one remote shared-memory read — moved from 5,347 cycles (network
-bypassed) to 5,529 cycles (network modeled): a 182-cycle, 3.4% difference.
-Cross-SM shared-memory reads and atomics now also return correct values
-rather than the garbage caused by bug #1.
+All cluster results below are from ClusterSim's 64-SM `test.config`
+(four 16-SM GPCs, GPC-aware issue, PTX functional mode) and
+`gpu_tot_sim_cycle`. Every run listed produced correct output
+(`MISMATCHES: 0`, and the gtest versions pass).
 
-**DSM vs. conventional shared memory.** Across two ClusterSim benchmark
-applications, three random seeds, and 100+ runs, DSM's advantage over the
-conventional (non-cluster) baseline ranges from **+15.2% to −48.5%**
-depending on how realistic the modeled interconnect cost is. The negative
-end of that range is the finding, not a failure of the port: an
-idealized or absent network cost flatters DSM, since it hides the
-latency of the cross-SM traffic DSM depends on. Once that cost is modeled
-realistically, DSM can lose to the conventional model on
-communication-heavy access patterns — which is the result a supervisor
-would expect from a feature whose entire premise is trading DRAM/L2
-traffic for on-chip network traffic that isn't free.
+**Network model cost.** Same kernel, same issue path, seed 1.
 
-**Cluster kernels with per-GPC networks.** Four 16-SM GPCs (64 SMs),
-GPC-aware issue, PTX functional mode, ClusterSim's `test.config`. Both
-kernels produce correct output.
+| Kernel | `none` | `ideal` | `crossbar` | `ringbus` |
+|---|---|---|---|---|
+| `matmul_gpu_cluster` (64x64, 4x4 cluster) | 11,292 | 15,295 | 15,818 | 64,554 |
+| `clusterHistkernel` | 7,001 | 12,751 | 13,834 | 144,049 |
 
-| Kernel | `none` | `crossbar` | Overhead |
-|---|---|---|---|
-| `matmul_gpu_cluster` (64x64, 4x4 cluster) | 11,292 | 15,818 | +4,526 (+40%) |
-| `clusterHistkernel` | 7,001 | 13,834 | +6,833 (+98%) |
+- Modeling the network with `crossbar` adds 40% (matmul) and 98%
+  (histogram) over `none`. An idealized flat latency therefore overstates
+  what DSM can deliver.
+- `ideal` is not free: it still charges the configured latency (+35% and
+  +82% over `none`).
+- `ringbus` costs about 4x (matmul) and 10x (histogram) more than
+  `crossbar`. The cause has not been investigated, so treat `ringbus`
+  as unvalidated.
+- GPC size (64, 32+32, or 16x4) changed `none` and `crossbar` cycles by
+  under 0.2% on both kernels.
 
-Each number is a single run of one kernel, so these show that the network
-cost is workload-dependent, not a general figure. The histogram's higher
-overhead has not been investigated.
+**DSM vs. conventional shared memory.** This comparison depends on CTA
+placement. On `clusterHistkernel`, the conventional (non-cluster) kernel
+takes a mean of 13,503 cycles over seeds 1, 7, 42 (14,384 / 12,858 /
+13,266) with the original per-SIMT-cluster issue path, and 11,165
+(10,903 / 10,919 / 11,674) with GPC-aware issue: 17% different for the
+same binary. DSM with `crossbar` takes about 13,830 cycles in both. DSM
+is therefore roughly at parity with conventional under the first path
+(about 4% faster on seed 1, about 2% slower against the 3-seed mean) and
+about 24% slower under the second. On matmul with GPC-aware issue,
+conventional takes 13,754 cycles: DSM is 18% faster with `none` (11,292)
+and 15% slower with `crossbar` (15,818).
+Compare DSM and conventional only within one issue path. The cost of the
+network itself (table above) is the stable result. The mechanism by which
+placement affects the conventional kernel was not investigated. The DSM
+cycle counts under the original issue path come from runs made before
+the atomics fixes above.
 
 **Regression correctness.** A 10-benchmark trace-driven regression suite
-(Rodinia 2.0) shows 0% cycle-count deviation from unmodified Accel-Sim
-when DSM is disabled, confirming the port doesn't change behavior for
-non-cluster kernels. The GPC-aware issue path is opt-in (it is used only
-when `-gpgpu_n_cores_per_gpc` is set), so this regression exercises the
-original issue path and stays unchanged.
+(Rodinia 2.0) shows identical `gpu_tot_sim_cycle` to unmodified Accel-Sim
+on the final build. The GPC-aware issue path is opt-in (used only when
+`-gpgpu_n_cores_per_gpc` is set), so this regression exercises the
+original issue path.
 
 ---
 
@@ -144,7 +156,7 @@ unchanged from upstream — see `UPSTREAM_README.md`.
 DSM-specific configuration:
 
 ```
--sm_2_sm_network_type <none|crossbar|ringbus|ideal>
+-sm_2_sm_network_type <none|crossbar|ideal|ringbus>
 ```
 
 `none` charges a flat configured latency for a remote shared-memory
@@ -178,7 +190,11 @@ above select the network model and GPC layout used for its timing.
 - Cluster-aware execution works in PTX functional mode. Trace-driven mode has
   no record of which SM owns a shared-memory address, so remote shared-memory
   access is not modelled there.
-- Cluster results are single runs on two kernels (matmul and histogram).
+- Cluster results cover two kernels, one 64-SM configuration, and three
+  seeds (matmul is identical across seeds).
+- `ringbus` timing is unexplained and unvalidated.
+- The SST integration CI job fails because its test harness finds no tests;
+  this appears unrelated to the simulator changes.
 
 ---
 
