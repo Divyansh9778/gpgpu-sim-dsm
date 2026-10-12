@@ -197,6 +197,7 @@ void IdealNetwork::Advance() {
     if (!input_queues[i].empty()) {
       auto& msg = input_queues[i].front();
       if (m_time - msg.time_injected > m_latency) {
+        msg.data->complete = true;
         output_queues[msg.dst].push(msg.data);
         input_queues[i].pop();
       }
@@ -275,10 +276,11 @@ void Ringbus::Advance() {
     auto& msg = ring_[i].front();
 
     if (msg.output_id == i) {
-      std::cout << "Moved message from " << msg.input_id << " to " << i << "\n";
+      msg.data->complete = true;
       output_queues[i].push(ring_[i].front());
       ring_[i].pop();
-    } else if (msg.remaining_latency <= 0) {
+    }
+    else if (msg.remaining_latency <= 0) {
       const int nn = this->next_node(i);
       msg.current_position = nn;
       msg.remaining_latency = m_latency;
