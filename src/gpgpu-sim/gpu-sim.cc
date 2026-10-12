@@ -1066,9 +1066,12 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   }
 
   m_gpcs.reserve(m_shader_config->m_cores_per_gpc_list.size());
+  unsigned next_gpc_first_sid = 0;
   for (unsigned i = 0; i < m_shader_config->m_cores_per_gpc_list.size(); i++) {
     m_gpcs.emplace_back(this, m_shader_config, i,
                         m_shader_config->m_cores_per_gpc_list.at(i));
+    m_gpcs.back().set_first_sid(next_gpc_first_sid);
+    next_gpc_first_sid += m_shader_config->m_cores_per_gpc_list.at(i);
   }
 
   ctx->ptx_parser->set_ptx_warp_size(m_shader_config);
@@ -1137,6 +1140,13 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
                                            m_shader_config->n_simt_clusters,
                                            0,
                                            m_shader_config, this);
+
+    // Per-GPC networks: each spans only its GPC's SMs. Not consumed until 2c.
+    for (auto &gpc : m_gpcs) {
+      gpc.set_network(create_sm2sm_network(
+          m_shader_config->sm_2_sm_network_type, gpc.get_shader_per_gpc(),
+          gpc.get_first_sid(), m_shader_config, this));
+    }
   }
   time_vector_create(NUM_MEM_REQ_STAT);
   fprintf(stdout,

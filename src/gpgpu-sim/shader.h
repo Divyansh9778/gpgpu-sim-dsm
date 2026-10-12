@@ -2644,6 +2644,11 @@ class gpu_processing_cluster {
   unsigned get_gpc_id() const { return m_gpc_id; }
   unsigned get_shader_per_gpc() const { return m_shader_per_gpc; }
 
+  void set_first_sid(unsigned sid) { m_first_sid = sid; }
+  unsigned get_first_sid() const { return m_first_sid; }
+  void set_network(class SM_2_SM_network *net) { m_network = net; }
+  class SM_2_SM_network *get_network() const { return m_network; }
+
   std::vector<unsigned> m_gpc_status;
 
  private:
@@ -2652,6 +2657,9 @@ class gpu_processing_cluster {
   gpgpu_sim *m_gpu;
   const shader_core_config *m_config;
   unsigned m_shader_per_gpc;
+
+  unsigned m_first_sid;  // global SM id of this GPC's first SM
+  class SM_2_SM_network *m_network;  // owned per-GPC SM-to-SM network
 };
 
 class simt_core_cluster {
