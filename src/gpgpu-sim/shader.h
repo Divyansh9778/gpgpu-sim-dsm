@@ -2656,6 +2656,10 @@ class gpu_processing_cluster {
 
   std::vector<unsigned> m_gpc_status;
 
+  unsigned issue_parallel_cta_cluster();
+  unsigned issue_cta_cluster_to_gpc();
+  int get_free_parallel_cta_slots() const;
+
  private:
   std::vector<simt_core_cluster *> m_clusters;
   unsigned m_gpc_id;
@@ -2665,10 +2669,16 @@ class gpu_processing_cluster {
 
   unsigned m_first_sid;  // global SM id of this GPC's first SM
   class SM_2_SM_network *m_network;  // owned per-GPC SM-to-SM network
+
+  kernel_info_t *m_kernel = nullptr;
+  unsigned m_cta_issue_next_cluster = 0;
 };
 
+
 class simt_core_cluster {
-public:
+  public:
+  friend class gpu_processing_cluster;
+  
   simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                     const shader_core_config *config,
                     const memory_config *mem_config, shader_core_stats *stats,

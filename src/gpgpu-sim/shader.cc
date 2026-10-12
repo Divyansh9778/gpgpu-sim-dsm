@@ -4686,6 +4686,63 @@ unsigned simt_core_cluster::issue_block2core() {
   return num_blocks_issued;
 }
 
+int gpu_processing_cluster::get_free_parallel_cta_slots() const {
+  int free_slots = 0;
+  for (const auto &cluster : m_clusters)
+    for (unsigned c = 0; c < m_config->n_simt_cores_per_cluster; c++)
+      if (cluster->m_core[c]->can_issue_1block(*m_kernel)) free_slots++;
+  return free_slots;
+}
+
+unsigned gpu_processing_cluster::issue_parallel_cta_cluster() {
+  unsigned ctas_to_issue = m_kernel->ctas_per_cluster();
+  if (get_free_parallel_cta_slots() < (int)ctas_to_issue) return 0;
+
+  unsigned free_cluster_slot = (unsigned)-1;
+  for (unsigned i = 0; i < m_gpc_status.size(); i++) {
+    if (m_gpc_status[i] == 0) {
+      free_cluster_slot = i;
+      break;
+    }
+  }
+  if (free_cluster_slot == (unsigned)-1) return 0;
+
+  const unsigned n_cores = m_config->n_simt_cores_per_cluster;
+  for (unsigned i = 0; i < m_clusters.size(); i++) {
+    unsigned cluster_index =
+        (i + m_cta_issue_next_cluster + 1) % m_clusters.size();
+    auto cluster = m_clusters.at(cluster_index);
+    for (unsigned j = 0; j < n_cores; j++) {
+      unsigned core_index = (j + cluster->m_cta_issue_next_core + 1) % n_cores;
+      auto core = cluster->m_core[core_index];
+      if (core->get_kernel() != m_kernel) {
+        if (core->get_not_completed()) continue;
+        core->set_kernel(m_kernel);
+      }
+      if (core->can_issue_1block(*m_kernel)) {
+        core->issue_block2core(*m_kernel, free_cluster_slot);
+        ctas_to_issue--;
+        if (ctas_to_issue == 0) {
+          cluster->m_cta_issue_next_core = core_index;
+          m_cta_issue_next_cluster = cluster_index;
+          m_gpc_status.at(free_cluster_slot) = m_kernel->ctas_per_cluster();
+          return m_kernel->ctas_per_cluster();
+        }
+      }
+    }
+  }
+  assert(0);
+  return 0;
+}
+
+unsigned gpu_processing_cluster::issue_cta_cluster_to_gpc() {
+  if (m_kernel == nullptr || m_kernel->is_finished())
+    m_kernel = m_gpu->select_kernel();
+  if (m_kernel == nullptr) return 0;
+  if (!m_gpu->kernel_more_cta_left(m_kernel)) return 0;
+  return issue_parallel_cta_cluster();
+}
+
 void simt_core_cluster::cache_flush() {
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++)
     m_core[i]->cache_flush();

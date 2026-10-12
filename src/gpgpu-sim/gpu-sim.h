@@ -725,6 +725,7 @@ class gpgpu_sim : public gpgpu_t {
   const memory_config *m_memory_config;
   
   std::vector<gpu_processing_cluster> m_gpcs;
+  bool m_use_gpc_issue = false;
 
   // stats
   class shader_core_stats *m_shader_stats;

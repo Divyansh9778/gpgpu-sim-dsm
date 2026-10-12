@@ -1065,6 +1065,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
     }
   }
 
+  m_use_gpc_issue = (strlen(m_shader_config->n_simt_cores_per_gpc) > 0);
   m_gpcs.reserve(m_shader_config->m_cores_per_gpc_list.size());
   unsigned next_gpc_first_sid = 0;
   for (unsigned i = 0; i < m_shader_config->m_cores_per_gpc_list.size(); i++) {
@@ -2087,6 +2088,18 @@ int gpgpu_sim::next_clock_domain(void) {
 }
 
 void gpgpu_sim::issue_block2core() {
+  if (m_use_gpc_issue) {
+    unsigned last_issued = m_last_cluster_issue;
+    for (unsigned i = 0; i < m_gpcs.size(); i++) {
+      unsigned idx = (i + last_issued + 1) % m_gpcs.size();
+      unsigned num = m_gpcs.at(idx).issue_cta_cluster_to_gpc();
+      if (num) {
+        m_last_cluster_issue = idx;
+        m_total_cta_launched += num;
+      }
+    }
+    return;
+  }
   unsigned last_issued = m_last_cluster_issue;
   for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
     unsigned idx = (i + last_issued + 1) % m_shader_config->n_simt_clusters;
