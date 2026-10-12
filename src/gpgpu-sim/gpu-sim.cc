@@ -1136,11 +1136,6 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
     icnt_create(m_shader_config->n_simt_clusters,
                 m_memory_config->m_n_mem_sub_partition);
 
-    m_sm2sm_network = create_sm2sm_network(m_shader_config->sm_2_sm_network_type,
-                                           m_shader_config->n_simt_clusters,
-                                           0,
-                                           m_shader_config, this);
-
     // Per-GPC networks: each spans only its GPC's SMs. Not consumed until 2c.
     for (auto &gpc : m_gpcs) {
       gpc.set_network(create_sm2sm_network(

@@ -2008,6 +2008,17 @@ bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
     if (net) {
       std::shared_ptr<cluster_shmem_request> req;
       while ((req = inst.get_next_open_cluster_request()) != nullptr) {
+        if (!net->owns_sid(req->origin_shader_id) ||
+            !net->owns_sid(req->target_shader_id)) {
+          fprintf(stderr,
+                  "GPGPU-Sim DSM error: SM %u accessed shared memory of SM %u, "
+                  "but its GPC only covers SMs [%u, %u). Set "
+                  "-gpgpu_n_cores_per_gpc so a whole cluster fits in one GPC.\n",
+                  req->origin_shader_id, req->target_shader_id,
+                  net->get_first_sid(),
+                  net->get_first_sid() + net->get_n_shader());
+          abort();
+        }
         net->Push(req->origin_shader_id, req->target_shader_id, req,
                   req->size, REQ_NET);
       }

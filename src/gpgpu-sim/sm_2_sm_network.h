@@ -75,6 +75,13 @@ class SM_2_SM_network {
   virtual bool Busy() const = 0;
   virtual bool HasBuffer(unsigned deviceID, unsigned int size,
                          Interconnect_type network) const = 0;
+
+  // Does this network have a port for global SM id `sid`?
+  bool owns_sid(unsigned sid) const {
+    return sid >= m_first_sid && sid < m_first_sid + m_n_shader;
+  }
+  unsigned get_first_sid() const { return m_first_sid; }
+  unsigned get_n_shader() const { return m_n_shader; }
   // virtual void DisplayStats() const;
   // virtual void DisplayOverallStats() const;
   // virtual unsigned GetFlitSize() const;

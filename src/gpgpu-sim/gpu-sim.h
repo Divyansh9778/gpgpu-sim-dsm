@@ -672,7 +672,6 @@ class gpgpu_sim : public gpgpu_t {
   
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
-  class SM_2_SM_network *get_sm2sm_network() const { return m_sm2sm_network; }
   
  protected:
   // clocks
@@ -714,7 +713,6 @@ class gpgpu_sim : public gpgpu_t {
   double dram_time;
   double l2_time;
   double sm_2_sm_network_time;
-  class SM_2_SM_network *m_sm2sm_network;
 
   // debug
   bool gpu_deadlock;
