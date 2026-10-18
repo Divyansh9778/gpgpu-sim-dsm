@@ -2009,37 +2009,6 @@ bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
     return !stall;
   }
 
-  // DSM: push any not-yet-sent cluster requests into the network, then
-  // stall until all of this instruction's cluster requests complete.
-  if (inst.has_pending_cluster_request()) {
-    class SM_2_SM_network *net = m_core->get_gpc_network();
-    if (net) {
-      std::shared_ptr<cluster_shmem_request> req;
-      while ((req = inst.get_next_open_cluster_request()) != nullptr) {
-        if (!net->owns_sid(req->origin_shader_id) ||
-            !net->owns_sid(req->target_shader_id)) {
-          fprintf(stderr,
-                  "GPGPU-Sim DSM error: SM %u accessed shared memory of SM %u, "
-                  "but its GPC only covers SMs [%u, %u). Set "
-                  "-gpgpu_n_cores_per_gpc so a whole cluster fits in one GPC.\n",
-                  req->origin_shader_id, req->target_shader_id,
-                  net->get_first_sid(),
-                  net->get_first_sid() + net->get_n_shader());
-          abort();
-        }
-        net->Push(req->origin_shader_id, req->target_shader_id, req,
-                  req->size, REQ_NET);
-        m_stats->gpgpu_n_cluster_remote_requests++;
-        if (req->is_atomic) m_stats->gpgpu_n_cluster_remote_atomic_requests++;
-      }
-    }
-  }
-  if (!inst.cluster_request_complete()) {
-    fail_type = S_MEM;
-    rc_fail = BK_CONF;
-    return false;
-  }
-
   rc_fail = NO_RC_FAIL;
   return true;
 }
@@ -2798,8 +2767,9 @@ void ldst_unit::writeback() {
        c++) {
     unsigned next_client = (c + m_writeback_arb) % m_num_writeback_clients;
     switch (next_client) {
-      case 0:  // shared memory
-        if (!m_pipeline_reg[0]->empty()) {
+        case 0:  // shared memory
+        if (!m_pipeline_reg[0]->empty() &&
+            m_pipeline_reg[0]->cluster_request_complete()) {
           m_next_wb = *m_pipeline_reg[0];
           if (m_next_wb.isatomic()) {
             m_next_wb.do_atomic();
@@ -2809,6 +2779,16 @@ void ldst_unit::writeback() {
           m_core->dec_inst_in_pipeline(m_pipeline_reg[0]->warp_id());
           m_pipeline_reg[0]->clear();
           serviced_client = next_client;
+        } else if (!m_pipeline_reg[0]->empty() &&
+                   !m_pipeline_reg[0]->cluster_request_complete()) {
+          // Requests still in the network: park this instruction at the back
+          // of the pipeline so others can proceed; it comes round again.
+          for (int i = m_config->smem_latency - 1; i > 0; i--) {
+            if (m_pipeline_reg[i]->empty()) {
+              move_warp(m_pipeline_reg[i], m_pipeline_reg[0]);
+              break;
+            }
+          }
         }
         break;
       case 1:  // texture response
@@ -2975,6 +2955,33 @@ void ldst_unit::cycle() {
     m_stats->gpgpu_n_stall_shd_mem++;
     m_stats->gpu_stall_shd_mem_breakdown[type][rc_fail]++;
     return;
+  }
+
+  // DSM: push not-yet-sent cluster requests into the GPC's network. The
+  // instruction continues down the shared-memory pipeline; completion is
+  // checked at writeback.
+  if (pipe_reg.has_pending_cluster_request()) {
+    class SM_2_SM_network *net = m_core->get_gpc_network();
+    if (net) {
+      std::shared_ptr<cluster_shmem_request> req;
+      while ((req = pipe_reg.get_next_open_cluster_request()) != nullptr) {
+        if (!net->owns_sid(req->origin_shader_id) ||
+            !net->owns_sid(req->target_shader_id)) {
+          fprintf(stderr,
+                  "GPGPU-Sim DSM error: SM %u accessed shared memory of SM %u, "
+                  "but its GPC only covers SMs [%u, %u). Set "
+                  "-gpgpu_n_cores_per_gpc so a whole cluster fits in one GPC.\n",
+                  req->origin_shader_id, req->target_shader_id,
+                  net->get_first_sid(),
+                  net->get_first_sid() + net->get_n_shader());
+          abort();
+        }
+        net->Push(req->origin_shader_id, req->target_shader_id, req,
+                  req->size, REQ_NET);
+        m_stats->gpgpu_n_cluster_remote_requests++;
+        if (req->is_atomic) m_stats->gpgpu_n_cluster_remote_atomic_requests++;
+      }
+    }
   }
 
   if (!pipe_reg.empty()) {
