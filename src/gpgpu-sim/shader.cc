@@ -648,6 +648,10 @@ void shader_core_stats::print(FILE *fout) const {
   fprintf(fout, "gpgpu_n_param_mem_insn = %d\n", gpgpu_n_param_insn);
 
   fprintf(fout, "gpgpu_n_shmem_bkconflict = %d\n", gpgpu_n_shmem_bkconflict);
+  fprintf(fout, "gpgpu_n_cluster_remote_requests = %u\n",
+          gpgpu_n_cluster_remote_requests);
+  fprintf(fout, "gpgpu_n_cluster_remote_atomic_requests = %u\n",
+          gpgpu_n_cluster_remote_atomic_requests);
   fprintf(fout, "gpgpu_n_l1cache_bkconflict = %d\n",
           gpgpu_n_l1cache_bkconflict);
 
@@ -2025,6 +2029,8 @@ bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
         }
         net->Push(req->origin_shader_id, req->target_shader_id, req,
                   req->size, REQ_NET);
+        m_stats->gpgpu_n_cluster_remote_requests++;
+        if (req->is_atomic) m_stats->gpgpu_n_cluster_remote_atomic_requests++;
       }
     }
   }

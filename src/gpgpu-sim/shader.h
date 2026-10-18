@@ -1800,6 +1800,8 @@ struct shader_core_stats_pod {
   unsigned gpgpu_n_const_insn;
   unsigned gpgpu_n_param_insn;
   unsigned gpgpu_n_shmem_bkconflict;
+  unsigned gpgpu_n_cluster_remote_requests;
+  unsigned gpgpu_n_cluster_remote_atomic_requests;
   unsigned gpgpu_n_l1cache_bkconflict;
   int gpgpu_n_intrawarp_mshr_merge;
   unsigned gpgpu_n_cmem_portconflict;
