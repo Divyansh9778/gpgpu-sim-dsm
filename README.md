@@ -162,6 +162,30 @@ matrix size (5,184 at 96, 12,288 at 128). Histogram (1,000 elements): 418,
 all atomic, growing about linearly with array size. Counts were measured
 before fix 8; the counter itself is unaffected by it.
 
+### Network types (overlapped design)
+
+| Case | `none` | `ideal` | `crossbar` | `ringbus` |
+|---|---|---|---|---|
+| matmul 64×64 | 11,292 | 13,308 | 13,703 | 54,747 |
+| histogram, 1,000 elements | 7,001 | 7,429 | 8,497 | 80,730 |
+| histogram, 65,536 elements | 8,627 | 9,329 | 18,382 | 2,441,374 (deadlock detector disabled) |
+
+`ideal` charges latency but not packet size, so it behaves as an
+infinite-bandwidth network; histogram's overhead shrinks from +113% to +8%
+at 65,536 elements, consistent with it being bandwidth-bound (inferred from
+the code, not a direct test).
+
+`ringbus` (histogram, 1,000 elements) at latencies 4 / 16 / 64 / 171:
+8,917 / 14,078 / 34,731 / 80,730 cycles, about 430 extra cycles per cycle
+of latency, close to the 418 remote requests. The ring is one-directional
+(`next_node` = `(i+1) % 16`), and each node forwards one message per
+`latency + 1` cycles. For the 65,536-element histogram that model predicts
+about 228K extra cycles at latency 16 (measured 229.8K) and about 2.31M at
+latency 171 (measured 2.43M), assuming evenly spread destinations (average
+8 hops) and balanced load. At the default latency the run trips the
+deadlock detector; with the detector disabled it completes with correct
+output.
+
 ### Earlier blocking design (upper bound)
 
 Before fix 8, every network-cost result was dominated by serialized round
@@ -237,8 +261,13 @@ benchmarks.
 - Under the overlapped design, remote stores are not waited on, and parked
   instructions are re-checked roughly every `smem_latency` cycles (from
   reading the code; not measured).
-- `ringbus` timing was 4–10× `crossbar` under the blocking design and has
-  not been re-measured or explained; treat it as unvalidated.
+- `ringbus` is an unpipelined, one-directional ring: each node forwards
+  one message per latency period, so its cost scales with total hops per
+  node times latency (matches measurements within about 1–5% on the
+  large histogram). It is not a realistic ring model, and its gap to
+  `crossbar` should not be read as a topology result. At the default
+  latency the 65,536-element histogram trips the deadlock detector and
+  completes only with `-gpgpu_deadlock_detect 0`.
 - Results cover two kernels, one 64-SM configuration, and three seeds.
 - Upstream CI workflows target the original authors' infrastructure (a
   self-hosted runner and an SST test harness) and are disabled in this fork.
